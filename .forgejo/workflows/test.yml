@@ -50,11 +50,24 @@ jobs:
       # (/api/v1/repos/<owner>/<repo>/actions/artifacts -> archive_download_url), and to the step
       # summary for the web UI. `|| true` keeps the step green so the artifact is always uploaded;
       # the verdict is re-imposed by the last step, which reads the recorded exit code.
+      # `set +e` and NO `|| true`. The first version of this step ended the pipeline with `|| true`
+      # and then read ${PIPESTATUS[0]} -- but `|| true` RUNS, and running it resets PIPESTATUS to
+      # (0), so the recorded code was `true`'s and not pytest's. Measured on run 5518: the job
+      # reported SUCCESS while its own artifact said `21 failed, 1452 passed`. A gate that cannot
+      # report red is worse than no gate, and it was the artifact -- not the status -- that caught
+      # it.
+      #
+      # `-rfsE` and not `-rs`: `-r` REPLACES the report characters, so `-rs` asks for skips ONLY and
+      # silently drops the FAILED list. That is how the same run produced a failure count with no
+      # failure names, leaving "are these the same failures we see locally?" unanswerable.
       - name: Run the suite
         run: |
-          set -o pipefail
-          uv run --frozen --all-groups pytest -q -rs 2>&1 | tee pytest-output.txt || true
-          echo "${PIPESTATUS[0]}" > pytest-exit-code.txt
+          set +e
+          uv run --frozen --all-groups pytest -q -rfsE 2>&1 | tee pytest-output.txt
+          code=${PIPESTATUS[0]}
+          echo "$code" > pytest-exit-code.txt
+          echo "recorded pytest exit code: $code"
+          exit 0
         shell: bash
 
       - name: Build the report
