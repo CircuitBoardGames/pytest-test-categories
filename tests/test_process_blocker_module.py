@@ -894,3 +894,70 @@ class DescribeSubprocessPatchingBlockerIntegration:
             assert len(start_called) == 1
         finally:
             blocker.deactivate()
+
+
+@pytest.mark.small
+class DescribeOsExecInterception:
+    """os.exec* must be reported, never delegated, when the test size forbids spawning.
+
+    The exec family does not return -- it replaces the process image. Delegating after recording a
+    violation destroys the process that would have reported it: the run stops mid-test, its output
+    is truncated, and it exits with the status of whatever replaced it. That is how a suite which
+    had completed 1 of 91 tests reported success.
+    """
+
+    def it_raises_instead_of_replacing_the_process_in_strict_mode(self) -> None:
+        """A small test calling os.execv gets an error, and this process survives to see it."""
+        blocker = SubprocessPatchingBlocker()
+        blocker.activate(TestSize.SMALL, EnforcementMode.STRICT)
+        try:
+            with pytest.raises(SubprocessViolationError):
+                os.execv('/bin/echo', ['echo', 'test'])
+        finally:
+            blocker.deactivate()
+
+    def it_also_raises_in_warn_mode(self) -> None:
+        """WARN cannot mean "allow" here, because the call never comes back.
+
+        Every other spawn this blocker intercepts is allowed to proceed under WARN. os.exec* is the
+        exception, and deliberately so: allowing it would end the run.
+        """
+        blocker = SubprocessPatchingBlocker()
+        blocker.activate(TestSize.SMALL, EnforcementMode.WARN)
+        try:
+            with pytest.raises(SubprocessViolationError):
+                os.execv('/bin/echo', ['echo', 'test'])
+        finally:
+            blocker.deactivate()
+
+    def it_delegates_when_the_size_allows_spawning(self) -> None:
+        """A medium test's exec is passed through untouched.
+
+        The stub is installed BEFORE activate(), so the blocker stores it as the original and
+        delegation is observable without this process actually being replaced.
+        """
+        calls = []
+        real_execv = os.execv
+        os.execv = lambda path, args: calls.append((path, tuple(args)))  # type: ignore[assignment]
+        try:
+            blocker = SubprocessPatchingBlocker()
+            blocker.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
+            try:
+                os.execv('/bin/echo', ['echo', 'test'])
+            finally:
+                blocker.deactivate()
+        finally:
+            os.execv = real_execv  # type: ignore[assignment]
+
+        assert calls == [('/bin/echo', ('echo', 'test'))]
+
+    def it_restores_every_exec_entry_point_on_deactivate(self) -> None:
+        """All eight exec names are put back, not just the one that was called."""
+        originals = {name: getattr(os, name) for name in ('execv', 'execve', 'execvp', 'execvpe', 'execl', 'execle', 'execlp', 'execlpe')}
+        blocker = SubprocessPatchingBlocker()
+        blocker.activate(TestSize.SMALL, EnforcementMode.STRICT)
+        patched = {name: getattr(os, name) for name in originals}
+        blocker.deactivate()
+
+        assert all(patched[name] is not originals[name] for name in originals), 'not every exec name was patched'
+        assert all(getattr(os, name) is originals[name] for name in originals), 'not every exec name was restored'

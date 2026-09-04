@@ -270,11 +270,11 @@ import os
 
 @pytest.mark.small
 def it_small_test_os_execv():
-    # This call should be intercepted and blocked by the plugin
-    try:
-        os.execv('/bin/echo', ['echo', 'test'])
-    except Exception:
-        pass
+    # This call should be intercepted and blocked by the plugin. It is NOT wrapped in try/except:
+    # the scenario asserts the test fails with a violation, and swallowing the exception made it
+    # pass instead. The original wrapper was defensive against a call that cannot raise -- os.execv
+    # replaces the process rather than returning -- which is the behaviour now intercepted.
+    os.execv('/bin/echo', ['echo', 'test'])
     assert True
 """
 

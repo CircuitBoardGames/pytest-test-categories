@@ -19,7 +19,7 @@ Intercepted Entry Points:
 - os.popen
 - multiprocessing.Process
 
-Note: The os.spawn* and os.exec* families are not currently intercepted as they
+Note: The os.spawn* family is not currently intercepted as it
 are rarely used in modern Python code. They can be added based on user feedback.
 
 Example:
@@ -56,6 +56,20 @@ from pytest_test_categories.types import TestSize
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+# Every os.exec* entry point. All of them replace the current process image rather than returning,
+# which is why they need handling distinct from every other spawn this blocker intercepts.
+_OS_EXEC_NAMES = (
+    'execv',
+    'execve',
+    'execvp',
+    'execvpe',
+    'execl',
+    'execle',
+    'execlp',
+    'execlpe',
+)
 
 
 class SubprocessPatchingBlocker(ProcessBlockerPort):
@@ -105,6 +119,7 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', None)
         object.__setattr__(self, '_original_os_popen', None)
         object.__setattr__(self, '_original_mp_process', None)
+        object.__setattr__(self, '_original_os_exec', {})
 
     def _do_activate(self, test_size: TestSize, enforcement_mode: EnforcementMode) -> None:
         """Install subprocess/os wrappers to intercept process spawns.
@@ -129,6 +144,7 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', os.system)
         object.__setattr__(self, '_original_os_popen', os.popen)
         object.__setattr__(self, '_original_mp_process', multiprocessing.Process)
+        object.__setattr__(self, '_original_os_exec', {name: getattr(os, name) for name in _OS_EXEC_NAMES})
 
         # Install patches
         subprocess.Popen = self._create_patched_popen()  # type: ignore[misc,assignment]
@@ -139,6 +155,8 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         os.system = self._create_patched_os_system()  # type: ignore[assignment]
         os.popen = self._create_patched_os_popen()
         multiprocessing.Process = self._create_patched_mp_process()  # type: ignore[misc,assignment]
+        for exec_name in _OS_EXEC_NAMES:
+            setattr(os, exec_name, self._create_patched_os_exec(exec_name))
 
     def _do_deactivate(self) -> None:
         """Restore the original subprocess/os functions.
@@ -181,6 +199,10 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         original_mp_process = object.__getattribute__(self, '_original_mp_process')
         if original_mp_process is not None:
             multiprocessing.Process = original_mp_process  # type: ignore[misc]
+
+        original_os_exec = object.__getattribute__(self, '_original_os_exec')
+        for exec_name, exec_fn in (original_os_exec or {}).items():
+            setattr(os, exec_name, exec_fn)
 
     def _do_check_spawn_allowed(self, command: str, args: tuple[str, ...]) -> bool:  # noqa: ARG002
         """Check if process spawn is allowed by test size rules.
@@ -259,6 +281,7 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', None)
         object.__setattr__(self, '_original_os_popen', None)
         object.__setattr__(self, '_original_mp_process', None)
+        object.__setattr__(self, '_original_os_exec', {})
 
         super().reset()
         self.current_test_size = None
@@ -440,6 +463,52 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
             return original_os_system(command)  # type: ignore[no-any-return]
 
         return patched_os_system
+
+    def _create_patched_os_exec(self, name: str) -> Callable[..., Any]:
+        """Create an os.exec* wrapper that reports instead of replacing this process.
+
+        THE EXEC FAMILY IS THE ONE CASE WHERE "WARN AND ALLOW" CANNOT BE IMPLEMENTED. os.execv and
+        its siblings never return -- they replace the process image. Delegating to the original
+        after recording a violation destroys the very process that was going to report it: the run
+        stops mid-test, its output is truncated, and it exits with the status of whatever replaced
+        it.
+
+        That is measured, not hypothetical. This project's own BDD scenario for os.execv called it
+        for real, because the exec family was documented as not intercepted, and the exit status of
+        the /bin/echo that replaced pytest -- zero -- made a run that had completed 1 of 91 tests
+        look like a run that had passed.
+
+        So when the spawn is not allowed for the current test size, this raises in EVERY
+        enforcement mode, WARN included. When it is allowed, it delegates untouched.
+
+        Args:
+            name: The os.exec* function being wrapped.
+
+        Returns:
+            A wrapper that raises rather than replacing the process.
+
+        """
+        blocker = self
+
+        def patched_os_exec(path: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            """Report the exec attempt rather than replacing this process."""
+            original = object.__getattribute__(blocker, '_original_os_exec')[name]
+            command = str(path)
+            if blocker._do_check_spawn_allowed(command, ()):  # noqa: SLF001
+                return original(path, *args, **kwargs)
+
+            blocker._do_on_violation(command, (), blocker.current_test_nodeid, f'os.{name}')  # noqa: SLF001
+            # Reached only in WARN/OFF, where _do_on_violation returns. There is no "allow"
+            # branch for a call that never comes back -- see the docstring.
+            raise SubprocessViolationError(
+                test_size=blocker.current_test_size,  # type: ignore[arg-type]
+                test_nodeid=blocker.current_test_nodeid,
+                command=command,
+                command_args=(),
+                method=f'os.{name}',
+            )
+
+        return patched_os_exec
 
     def _create_patched_os_popen(self) -> Callable[..., Any]:
         """Create an os.popen wrapper that intercepts process spawns.
