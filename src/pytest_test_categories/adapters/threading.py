@@ -146,7 +146,13 @@ class ThreadPatchingMonitor(ThreadMonitorPort):
             test_nodeid: The pytest node ID of the test creating the thread.
 
         """
-        if self.current_test_size == TestSize.SMALL and self.current_enforcement_mode == EnforcementMode.WARN:
+        # STRICT as well as WARN. Threads are deliberately never blocked -- many libraries use
+        # threading internally -- so gating the warning on WARN alone made the strictest mode
+        # the only one that said nothing.
+        if self.current_test_size == TestSize.SMALL and self.current_enforcement_mode in (
+            EnforcementMode.WARN,
+            EnforcementMode.STRICT,
+        ):
             warning_msg = (
                 f"Small test '{test_nodeid}' uses {thread_type}. "
                 f'Small tests should be single-threaded for determinism. '

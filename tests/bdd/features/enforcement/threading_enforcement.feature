@@ -23,7 +23,7 @@ Feature: Threading/Multiprocessing Enforcement
     And a test file with a small test that spawns a Thread
     When the test suite runs
     Then the test passes
-    And a threading warning is emitted containing "Small test created threads"
+    And a threading warning is emitted containing "single-threaded"
 
   @strict @ThreadPoolExecutor
   Scenario: Small test using ThreadPoolExecutor in strict mode emits warning
@@ -31,7 +31,7 @@ Feature: Threading/Multiprocessing Enforcement
     And a test file with a small test that uses ThreadPoolExecutor
     When the test suite runs
     Then the test passes
-    And a threading warning is emitted containing "Small test created threads"
+    And a threading warning is emitted containing "single-threaded"
 
   @strict @multiprocessing.Process
   Scenario: Small test using multiprocessing.Process in strict mode fails
@@ -59,7 +59,7 @@ Feature: Threading/Multiprocessing Enforcement
     And a test file with a small test that spawns a Thread
     When the test suite runs
     Then the test passes
-    And a threading warning is emitted containing "Small test created threads"
+    And a threading warning is emitted containing "single-threaded"
 
   @warn @multiprocessing.Process
   Scenario: Small test using multiprocessing.Process in warn mode shows warning
@@ -119,7 +119,7 @@ Feature: Threading/Multiprocessing Enforcement
     And a test file with a small test that spawns a daemon Thread
     When the test suite runs
     Then the test passes
-    And a threading warning is emitted containing "Small test created threads"
+    And a threading warning is emitted containing "single-threaded"
 
   @strict @multiple-threads
   Scenario: Small test spawning multiple threads reports thread count

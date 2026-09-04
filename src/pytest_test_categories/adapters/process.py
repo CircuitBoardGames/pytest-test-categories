@@ -19,7 +19,7 @@ Intercepted Entry Points:
 - os.popen
 - multiprocessing.Process
 
-Note: The os.spawn* family is not currently intercepted as it
+Note: os.spawn* and os.exec* are both intercepted. The remaining uncovered path is
 are rarely used in modern Python code. They can be added based on user feedback.
 
 Example:
@@ -39,6 +39,7 @@ See Also:
 
 from __future__ import annotations
 
+import concurrent.futures
 import multiprocessing
 import os
 import subprocess
@@ -60,6 +61,19 @@ if TYPE_CHECKING:
 
 # Every os.exec* entry point. All of them replace the current process image rather than returning,
 # which is why they need handling distinct from every other spawn this blocker intercepts.
+# The os.spawn* family. Unlike exec, these RETURN -- they fork and wait -- so they take the same
+# warn/strict semantics as every other spawn here: WARN records and lets the call proceed.
+_OS_SPAWN_NAMES = (
+    'spawnl',
+    'spawnle',
+    'spawnlp',
+    'spawnlpe',
+    'spawnv',
+    'spawnve',
+    'spawnvp',
+    'spawnvpe',
+)
+
 _OS_EXEC_NAMES = (
     'execv',
     'execve',
@@ -119,7 +133,9 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', None)
         object.__setattr__(self, '_original_os_popen', None)
         object.__setattr__(self, '_original_mp_process', None)
+        object.__setattr__(self, '_original_process_pool', None)
         object.__setattr__(self, '_original_os_exec', {})
+        object.__setattr__(self, '_original_os_spawn', {})
 
     def _do_activate(self, test_size: TestSize, enforcement_mode: EnforcementMode) -> None:
         """Install subprocess/os wrappers to intercept process spawns.
@@ -144,7 +160,9 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', os.system)
         object.__setattr__(self, '_original_os_popen', os.popen)
         object.__setattr__(self, '_original_mp_process', multiprocessing.Process)
+        object.__setattr__(self, '_original_process_pool', concurrent.futures.ProcessPoolExecutor.__init__)
         object.__setattr__(self, '_original_os_exec', {name: getattr(os, name) for name in _OS_EXEC_NAMES})
+        object.__setattr__(self, '_original_os_spawn', {name: getattr(os, name) for name in _OS_SPAWN_NAMES if hasattr(os, name)})
 
         # Install patches
         subprocess.Popen = self._create_patched_popen()  # type: ignore[misc,assignment]
@@ -155,8 +173,11 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         os.system = self._create_patched_os_system()  # type: ignore[assignment]
         os.popen = self._create_patched_os_popen()
         multiprocessing.Process = self._create_patched_mp_process()  # type: ignore[misc,assignment]
+        concurrent.futures.ProcessPoolExecutor.__init__ = self._create_patched_process_pool_init()  # type: ignore[method-assign]
         for exec_name in _OS_EXEC_NAMES:
             setattr(os, exec_name, self._create_patched_os_exec(exec_name))
+        for spawn_name in object.__getattribute__(self, '_original_os_spawn'):
+            setattr(os, spawn_name, self._create_patched_os_spawn(spawn_name))
 
     def _do_deactivate(self) -> None:
         """Restore the original subprocess/os functions.
@@ -200,9 +221,17 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         if original_mp_process is not None:
             multiprocessing.Process = original_mp_process  # type: ignore[misc]
 
+        original_process_pool = object.__getattribute__(self, '_original_process_pool')
+        if original_process_pool is not None:
+            concurrent.futures.ProcessPoolExecutor.__init__ = original_process_pool  # type: ignore[method-assign]
+
         original_os_exec = object.__getattribute__(self, '_original_os_exec')
         for exec_name, exec_fn in (original_os_exec or {}).items():
             setattr(os, exec_name, exec_fn)
+
+        original_os_spawn = object.__getattribute__(self, '_original_os_spawn')
+        for spawn_name, spawn_fn in (original_os_spawn or {}).items():
+            setattr(os, spawn_name, spawn_fn)
 
     def _do_check_spawn_allowed(self, command: str, args: tuple[str, ...]) -> bool:  # noqa: ARG002
         """Check if process spawn is allowed by test size rules.
@@ -281,7 +310,9 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         object.__setattr__(self, '_original_os_system', None)
         object.__setattr__(self, '_original_os_popen', None)
         object.__setattr__(self, '_original_mp_process', None)
+        object.__setattr__(self, '_original_process_pool', None)
         object.__setattr__(self, '_original_os_exec', {})
+        object.__setattr__(self, '_original_os_spawn', {})
 
         super().reset()
         self.current_test_size = None
@@ -463,6 +494,67 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
             return original_os_system(command)  # type: ignore[no-any-return]
 
         return patched_os_system
+
+    def _create_patched_process_pool_init(self) -> Callable[..., None]:
+        """Wrap ProcessPoolExecutor.__init__ so pools are reported as process spawns.
+
+        MUTATES THE CLASS RATHER THAN REBINDING THE NAME. Test modules write
+        `from concurrent.futures import ProcessPoolExecutor` at import time, which binds the class
+        object before any blocker activates -- so replacing the module attribute is invisible to
+        them. Patching __init__ on the class itself reaches every reference, however it was
+        imported.
+
+        AND AT CONSTRUCTION, NOT AT SUBMIT: a pool touches the filesystem (semaphores, shared
+        memory) before it starts a process, so without this the filesystem blocker reported first
+        and a process-pool violation surfaced as a FILESYSTEM violation -- the first symptom rather
+        than the cause.
+
+        Returns:
+            A replacement __init__ that checks permissions before delegating.
+
+        """
+        blocker = self
+        original_init = object.__getattribute__(self, '_original_process_pool')
+
+        def patched_init(pool_self: Any, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+            """Check permissions then delegate to the real __init__."""
+            if not blocker._do_check_spawn_allowed('ProcessPoolExecutor', ()):  # noqa: SLF001
+                blocker._do_on_violation(  # noqa: SLF001
+                    'ProcessPoolExecutor',
+                    (),
+                    blocker.current_test_nodeid,
+                    'concurrent.futures.ProcessPoolExecutor',
+                )
+
+            original_init(pool_self, *args, **kwargs)
+
+        return patched_init
+
+    def _create_patched_os_spawn(self, name: str) -> Callable[..., Any]:
+        """Create an os.spawn* wrapper that intercepts process spawns.
+
+        These return, unlike os.exec*, so they follow the ordinary rules: STRICT raises through
+        _do_on_violation, WARN records and allows the spawn to proceed.
+
+        Args:
+            name: The os.spawn* function being wrapped.
+
+        Returns:
+            A wrapper that checks permissions before delegating.
+
+        """
+        blocker = self
+
+        def patched_os_spawn(mode: Any, path: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            """Check permissions then delegate to the real os.spawn*."""
+            original = object.__getattribute__(blocker, '_original_os_spawn')[name]
+            command = str(path)
+            if not blocker._do_check_spawn_allowed(command, ()):  # noqa: SLF001
+                blocker._do_on_violation(command, (), blocker.current_test_nodeid, f'os.{name}')  # noqa: SLF001
+
+            return original(mode, path, *args, **kwargs)
+
+        return patched_os_spawn
 
     def _create_patched_os_exec(self, name: str) -> Callable[..., Any]:
         """Create an os.exec* wrapper that reports instead of replacing this process.

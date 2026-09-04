@@ -8,6 +8,15 @@ operations like os.system in test strings - these are being tested for
 blocking, not executed.
 """
 
+# STEP DEFINITIONS ARE NOT TESTS, AND pytest COLLECTS BY NAME. Six @then steps here were named
+# test_passes, test_fails_*_violation and so on. pytest collects any module-level `test_*` function,
+# so each was ALSO run as a standalone test -- with a freshly constructed, empty context, since no
+# Given or When step had run. All six then asserted against return_code=None and an empty output and
+# failed, which is five of this file's inherited failures. They are bound to their scenarios by the
+# decorator string, never by the function name, so `assert_*` binds identically and stops the
+# collection.
+
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -969,7 +978,7 @@ def run_test_suite(context: EnforcementContext, pytester: Pytester) -> None:
 
 
 @then('the test passes')
-def test_passes(context: EnforcementContext) -> None:
+def assert_passes(context: EnforcementContext) -> None:
     """Assert that the test passed."""
     assert context.passed, (
         f'Expected test to pass but got return code {context.return_code}.\nOutput:\n{context.output}'
@@ -977,14 +986,14 @@ def test_passes(context: EnforcementContext) -> None:
 
 
 @then('the test fails with a sleep violation error')
-def test_fails_sleep_violation(context: EnforcementContext) -> None:
+def assert_fails_sleep_violation(context: EnforcementContext) -> None:
     """Assert that test failed due to sleep violation."""
     assert context.failed, f'Expected test to fail but it passed.\nOutput:\n{context.output}'
     assert 'sleep' in context.output.lower(), f'Expected sleep violation in output.\nOutput:\n{context.output}'
 
 
 @then('the test fails with a process violation error')
-def test_fails_process_violation(context: EnforcementContext) -> None:
+def assert_fails_process_violation(context: EnforcementContext) -> None:
     """Assert that test failed due to process violation."""
     assert context.failed, f'Expected test to fail but it passed.\nOutput:\n{context.output}'
     assert 'subprocess' in context.output.lower() or 'process' in context.output.lower(), (
@@ -993,7 +1002,7 @@ def test_fails_process_violation(context: EnforcementContext) -> None:
 
 
 @then('the test fails with a filesystem violation error')
-def test_fails_filesystem_violation(context: EnforcementContext) -> None:
+def assert_fails_filesystem_violation(context: EnforcementContext) -> None:
     """Assert that test failed due to filesystem violation."""
     assert context.failed, f'Expected test to fail but it passed.\nOutput:\n{context.output}'
     assert 'filesystem' in context.output.lower(), (
@@ -1002,14 +1011,14 @@ def test_fails_filesystem_violation(context: EnforcementContext) -> None:
 
 
 @then('the test fails with a network violation error')
-def test_fails_network_violation(context: EnforcementContext) -> None:
+def assert_fails_network_violation(context: EnforcementContext) -> None:
     """Assert that test failed due to network violation."""
     assert context.failed, f'Expected test to fail but it passed.\nOutput:\n{context.output}'
     assert 'network' in context.output.lower(), f'Expected network violation in output.\nOutput:\n{context.output}'
 
 
 @then('the test fails with the first violation error')
-def test_fails_first_violation(context: EnforcementContext) -> None:
+def assert_fails_first_violation(context: EnforcementContext) -> None:
     """Assert that test failed (first violation stops execution)."""
     assert context.failed, f'Expected test to fail but it passed.\nOutput:\n{context.output}'
 

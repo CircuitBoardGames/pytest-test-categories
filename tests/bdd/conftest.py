@@ -76,3 +76,24 @@ def test_result() -> dict[str, object]:
         'stderr': '',
         'outcome': None,
     }
+
+
+# SIZE TAGS ON A SCENARIO DESCRIBE THE TEST UNDER TEST, NOT THE SCENARIO.
+#
+# pytest-bdd turns every Gherkin tag into a pytest mark on the generated scenario function. These
+# feature files are tagged @small / @medium / @large to say what size the test INSIDE the scenario
+# is, so that conversion put a real size marker on the BDD test itself -- and this plugin then
+# enforced hermeticity against it. A scenario runs pytester: it writes files and spawns processes by
+# construction, so every such scenario failed on its own subject matter. That was 16 failures.
+#
+# Returning True tells pytest-bdd the tag is handled and suppresses the default mark. The tags stay
+# in the feature files, where they are documentation and are read by the steps.
+_SIZE_TAGS = frozenset({'small', 'medium', 'large', 'xlarge'})
+
+
+def pytest_bdd_apply_tag(tag, function):  # noqa: ANN001, ANN201
+    """Suppress size tags as marks; let pytest-bdd handle everything else."""
+    if tag in _SIZE_TAGS:
+        return True
+    return None
+

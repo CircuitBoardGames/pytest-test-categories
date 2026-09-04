@@ -27,6 +27,7 @@ See Also:
 from __future__ import annotations
 
 import socket
+from typing import Any, Callable
 
 from pydantic import Field
 
@@ -37,6 +38,11 @@ from pytest_test_categories.ports.network import (
     is_localhost,
 )
 from pytest_test_categories.types import TestSize
+
+
+# Name resolution entry points on the socket module. None of these construct a socket.socket, so
+# none were reached by patching that class.
+_RESOLVER_NAMES = ('getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'getnameinfo')
 
 
 class SocketPatchingNetworkBlocker(NetworkBlockerPort):
@@ -76,6 +82,7 @@ class SocketPatchingNetworkBlocker(NetworkBlockerPort):
         # Store the original socket class as a private attribute (not a Pydantic field)
         # This ensures we can always restore it even if patched multiple times
         object.__setattr__(self, '_original_socket_class', None)
+        object.__setattr__(self, '_original_resolvers', {})
 
     def _do_activate(self, test_size: TestSize, enforcement_mode: EnforcementMode) -> None:
         """Install socket wrapper to intercept connection attempts.
@@ -97,6 +104,19 @@ class SocketPatchingNetworkBlocker(NetworkBlockerPort):
         # Create and install the patched socket class
         socket.socket = self._create_patched_socket_class()  # type: ignore[misc,assignment]
 
+        # DNS DOES NOT GO THROUGH socket.socket. getaddrinfo and friends resolve a name without
+        # ever constructing one, so patching the class alone left name resolution -- the first
+        # thing most network code does, and a real dependency on the outside world -- entirely
+        # unintercepted. A small test doing a DNS lookup passed while the scenario asserting it
+        # fails did not.
+        object.__setattr__(
+            self,
+            '_original_resolvers',
+            {name: getattr(socket, name) for name in _RESOLVER_NAMES if hasattr(socket, name)},
+        )
+        for resolver_name in object.__getattribute__(self, '_original_resolvers'):
+            setattr(socket, resolver_name, self._create_patched_resolver(resolver_name))
+
     def _do_deactivate(self) -> None:
         """Restore the original socket.socket class.
 
@@ -108,6 +128,34 @@ class SocketPatchingNetworkBlocker(NetworkBlockerPort):
         original = object.__getattribute__(self, '_original_socket_class')
         if original is not None:
             socket.socket = original  # type: ignore[misc]
+
+        original_resolvers = object.__getattribute__(self, '_original_resolvers')
+        for resolver_name, resolver_fn in (original_resolvers or {}).items():
+            setattr(socket, resolver_name, resolver_fn)
+
+    def _create_patched_resolver(self, name: str) -> Callable[..., Any]:
+        """Create a name-resolution wrapper.
+
+        Args:
+            name: The socket module resolver being wrapped.
+
+        Returns:
+            A wrapper that checks permissions before resolving.
+
+        """
+        blocker = self
+
+        def patched_resolver(host: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            """Check permissions then delegate to the real resolver."""
+            original = object.__getattribute__(blocker, '_original_resolvers')[name]
+            # Port 0: a resolution is not a connection, so there is no port to report. The check
+            # only distinguishes localhost from everything else, which is a property of the host.
+            if not blocker._do_check_connection_allowed(str(host), 0):  # noqa: SLF001
+                blocker._do_on_violation(str(host), 0, blocker.current_test_nodeid)  # noqa: SLF001
+
+            return original(host, *args, **kwargs)
+
+        return patched_resolver
 
     def _do_check_connection_allowed(self, host: str, port: int) -> bool:  # noqa: ARG002
         """Check if connection to host:port is allowed by test size rules.
