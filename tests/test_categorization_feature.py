@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from pytest_test_categories.services.test_discovery import WARN_UNMARKED_ENV
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -70,7 +72,7 @@ class DescribeTestCategorization:
 
         result.stderr.fnmatch_lines(['*Test cannot have multiple size markers: small, medium*'])
 
-    def it_warns_when_test_has_no_size_marker(self, pytester: pytest.Pytester) -> None:
+    def it_warns_when_test_has_no_size_marker(self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify that tests are properly categorized in the output based on their size marker."""
         test_file = pytester.makepyfile(
             test_file="""
@@ -79,6 +81,8 @@ class DescribeTestCategorization:
             """,
         )
 
+        # The warning is opt-in; this test is about the warning, so it turns it on.
+        monkeypatch.setenv(WARN_UNMARKED_ENV, '1')
         result: pytest.RunResult = pytester.runpytest(test_file)
 
         assert result.ret == 0

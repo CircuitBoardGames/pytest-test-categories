@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+from pytest_test_categories.services.test_discovery import WARN_UNMARKED_ENV
+
 
 @pytest.mark.medium
 class DescribeCompleteWorkflow:
@@ -148,8 +150,9 @@ class DescribeEdgeCaseWorkflows:
         lines_with_small = [line for line in stdout.splitlines() if '[SMALL]' in line]
         assert len(lines_with_small) >= 3
 
-    def it_handles_missing_markers(self, pytester: pytest.Pytester) -> None:
-        """Verify workflow handles tests without size markers."""
+    def it_handles_missing_markers(self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify workflow handles tests without size markers, with the warning opted in."""
+        monkeypatch.setenv(WARN_UNMARKED_ENV, '1')
         pytester.makepyfile(
             test_example="""
             def test_no_marker():

@@ -23,6 +23,7 @@ from pytest_test_categories.adapters.pytest_adapter import (
 )
 from pytest_test_categories.distribution.stats import DistributionStats
 from pytest_test_categories.reporting import TestSizeReport
+from pytest_test_categories.services.test_discovery import WARN_UNMARKED_ENV
 from pytest_test_categories.services import (
     DistributionValidationService,
     TestCountingService,
@@ -123,8 +124,13 @@ def test_xlarge():
 
         assert size == TestSize.XLARGE
 
-    def it_emits_warning_for_unmarked_test_with_real_adapter(self, pytester: pytest.Pytester) -> None:
-        """Verify service emits real warnings for unmarked tests."""
+    def it_emits_warning_for_unmarked_test_with_real_adapter(
+        self,
+        pytester: pytest.Pytester,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verify service emits real warnings for unmarked tests when the opt-in is set."""
+        monkeypatch.setenv(WARN_UNMARKED_ENV, '1')
         source = """
 def test_unmarked():
     assert True
