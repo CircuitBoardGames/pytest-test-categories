@@ -88,6 +88,9 @@ from pytest_test_categories.violation_tracking import (
     ViolationType,
 )
 from pytest_test_categories.xdist_compat import (
+    WORKEROUTPUT_SUGGESTION_KEY,
+    merge_suggestion_data,
+    serialize_suggestion_data,
     WORKEROUTPUT_DISTRIBUTION_KEY,
     WORKEROUTPUT_REPORT_KEY,
     deserialize_distribution_counts,
@@ -630,6 +633,12 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         test_report = cast('TestSizeReport', session_state.test_size_report)
         workeroutput[WORKEROUTPUT_REPORT_KEY] = serialize_report_data(test_report)
 
+    # Send suggestion observations if suggest mode is enabled. Without this the controller never
+    # learns what the workers observed, and --test-categories-suggest prints nothing under -n.
+    if session_state.suggestion_collector is not None:
+        suggestion_collector = cast('SuggestionCollector', session_state.suggestion_collector)
+        workeroutput[WORKEROUTPUT_SUGGESTION_KEY] = serialize_suggestion_data(suggestion_collector)
+
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: object, error: object | None) -> None:  # noqa: ARG001
@@ -687,6 +696,12 @@ def pytest_testnodedown(node: object, error: object | None) -> None:  # noqa: AR
     if worker_report_data is not None and session_state.test_size_report is not None:
         test_report = cast('TestSizeReport', session_state.test_size_report)
         merge_report_data(test_report, worker_report_data)
+
+    # Aggregate suggestion observations from the worker
+    worker_suggestion_data = workeroutput.get(WORKEROUTPUT_SUGGESTION_KEY)
+    if worker_suggestion_data is not None and session_state.suggestion_collector is not None:
+        controller_collector = cast('SuggestionCollector', session_state.suggestion_collector)
+        merge_suggestion_data(controller_collector, worker_suggestion_data)
 
 
 def _ensure_discovery_service(session_state: pytest_test_categories.types.PluginState) -> TestDiscoveryService:

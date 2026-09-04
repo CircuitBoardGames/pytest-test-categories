@@ -39,6 +39,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import pytest
@@ -50,7 +51,17 @@ from pytest_test_categories.types import (
 )
 
 
+# Opt-in for the per-unmarked-test warning. An ENVIRONMENT VARIABLE rather than an ini key or a
+# CLI flag on purpose: a test suite that shells out to a nested pytest reads that child's stdout,
+# and the child inherits the environment but not the parent's argv or ini. Warning by default
+# printed one line per collected test into every such child's output, which is indistinguishable
+# from the test's own findings. Same reason `-p no:pytest_test_categories` is not a workaround --
+# it disables the plugin in the parent, not in the process being read.
+WARN_UNMARKED_ENV = 'TEST_CATEGORIES_WARN_UNMARKED'
+
+
 @dataclass(frozen=True)
+
 class MarkerConflict:
     """Data class for holding marker conflict information."""
 
@@ -167,7 +178,7 @@ class TestDiscoveryService:
 
         # No size markers found - warn and return None
         if not found_sizes:
-            if item.nodeid not in self._warned_tests:
+            if item.nodeid not in self._warned_tests and os.environ.get(WARN_UNMARKED_ENV) == '1':
                 self._warning_system.warn(
                     f'Test has no size marker: {item.nodeid}',
                     category=pytest.PytestWarning,

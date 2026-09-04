@@ -18,8 +18,9 @@ Hooks used:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from pytest_test_categories.suggestion import ResourceType, SuggestionCollector
 from pytest_test_categories.types import TestSize
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ XDIST_WORKER_ENV = 'PYTEST_XDIST_WORKER'
 # Keys for worker output data
 WORKEROUTPUT_DISTRIBUTION_KEY = 'test_categories_distribution'
 WORKEROUTPUT_REPORT_KEY = 'test_categories_report'
+WORKEROUTPUT_SUGGESTION_KEY = 'test_categories_suggestions'
 
 
 def is_xdist_worker() -> bool:
@@ -195,3 +197,48 @@ def merge_report_data(
     _merge_unsized_tests(target, worker_data.get('unsized_tests', []))
     _merge_durations(target, worker_data.get('test_durations', {}))
     _merge_outcomes(target, worker_data.get('test_outcomes', {}))
+
+
+def serialize_suggestion_data(collector: SuggestionCollector) -> dict[str, object]:
+    """Flatten a SuggestionCollector into primitives xdist can send over the wire.
+
+    Only what a worker learns and the controller cannot is sent: resource observations and
+    execution times. Current-size markers are deliberately NOT sent -- the controller collects
+    every test itself, so it already has them, and re-sending would reintroduce the same
+    double-count that the distribution path guards against explicitly.
+
+    Args:
+        collector: The worker's suggestion collector.
+
+    Returns:
+        A dict of primitives suitable for the xdist workeroutput channel.
+
+    """
+    return {
+        'observations': {
+            nodeid: [{'resource_type': str(o.resource_type), 'details': o.details} for o in obs]
+            for nodeid, obs in collector.export_observations().items()
+        },
+        'execution_times': collector.export_execution_times(),
+    }
+
+
+def merge_suggestion_data(collector: SuggestionCollector, data: dict[str, object]) -> None:
+    """Merge one worker's serialized observations into the controller's collector.
+
+    Additive by node ID. xdist assigns each test to exactly one worker, so no node ID appears in
+    two workers' payloads and there is nothing to reconcile.
+
+    Args:
+        collector: The controller's suggestion collector.
+        data: One worker's payload, as produced by serialize_suggestion_data.
+
+    """
+    observations = cast('dict[str, list[dict[str, str]]]', data.get('observations') or {})
+    for nodeid, obs in observations.items():
+        for o in obs:
+            collector.record_observation(nodeid, ResourceType(o['resource_type']), o['details'])
+
+    execution_times = cast('dict[str, float]', data.get('execution_times') or {})
+    for nodeid, duration in execution_times.items():
+        collector.record_execution_time(nodeid, duration)

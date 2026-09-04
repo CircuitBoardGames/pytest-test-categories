@@ -192,6 +192,27 @@ class SuggestionCollector:
         """
         self._current_sizes[test_nodeid] = size
 
+    def export_observations(self) -> dict[str, list[ResourceObservation]]:
+        """Return the recorded observations, keyed by node ID.
+
+        Exposed so the xdist controller can rebuild a worker's observations without reaching
+        into private state. Only tests with at least one observation are included.
+
+        Returns:
+            A plain dict of node ID to that test's observations.
+
+        """
+        return {nodeid: list(obs) for nodeid, obs in self._observations.items() if obs}
+
+    def export_execution_times(self) -> dict[str, float]:
+        """Return the recorded execution times, keyed by node ID.
+
+        Returns:
+            A plain dict of node ID to that test's duration in seconds.
+
+        """
+        return dict(self._execution_times)
+
     @property
     def observation_count(self) -> int:
         """Get the total number of observations across all tests.
