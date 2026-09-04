@@ -31,6 +31,7 @@ from pytest_test_categories.formatting import (
     pluralize_test,
 )
 from pytest_test_categories.plugin import (
+    LABEL_NODEIDS_ENV,
     _get_distribution_enforcement_mode,
     _get_enforcement_mode,
     _get_network_blocker,
@@ -658,3 +659,60 @@ class DescribeGetNetworkBlocker:
         blocker2 = _get_network_blocker(config)
 
         assert blocker1 is blocker2
+
+
+@pytest.mark.medium
+class DescribeNodeIdLabelOptOut:
+    """The size label appended to node IDs can be switched off without disabling the plugin.
+
+    A node ID is an identifier other tools match on. A suite whose tests spawn a nested pytest and
+    assert on its output sees ' [SMALL]' appended to the very ids it is matching, and there is no
+    parent-side way to stop it -- `-p no:pytest_test_categories` disables the plugin in the parent,
+    not in the child being read. The default is unchanged; this is the escape hatch.
+    """
+
+    def it_labels_node_ids_by_default(self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It appends the size label when the opt-out is unset -- the control for the two below."""
+        monkeypatch.delenv(LABEL_NODEIDS_ENV, raising=False)
+        pytester.makepyfile(test_file="""
+            import pytest
+
+            @pytest.mark.small
+            def test_one():
+                assert True
+            """)
+
+        result = pytester.runpytest('-v')
+
+        result.stdout.fnmatch_lines(['*test_one*[[]SMALL[]]*'])
+
+    def it_leaves_node_ids_alone_when_switched_off(self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It does not touch the node ID when the opt-out is '0'."""
+        monkeypatch.setenv(LABEL_NODEIDS_ENV, '0')
+        pytester.makepyfile(test_file="""
+            import pytest
+
+            @pytest.mark.small
+            def test_one():
+                assert True
+            """)
+
+        result = pytester.runpytest('-v')
+
+        result.assert_outcomes(passed=1)
+        assert '[SMALL]' not in result.stdout.str()
+
+    def it_treats_any_other_value_as_on(self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only '0' switches it off, so a stray value cannot silently change node IDs."""
+        monkeypatch.setenv(LABEL_NODEIDS_ENV, 'false')
+        pytester.makepyfile(test_file="""
+            import pytest
+
+            @pytest.mark.small
+            def test_one():
+                assert True
+            """)
+
+        result = pytester.runpytest('-v')
+
+        result.stdout.fnmatch_lines(['*test_one*[[]SMALL[]]*'])

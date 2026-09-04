@@ -28,6 +28,7 @@ that are easy to understand and maintain.
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from contextlib import ExitStack
 from importlib.metadata import version
@@ -110,6 +111,13 @@ if TYPE_CHECKING:
 
 # Package version for JSON report
 PLUGIN_VERSION = version('pytest-test-categories')
+
+# Opt-OUT for appending ' [SMALL]'-style size labels to node IDs: set it to '0' to leave node IDs
+# alone. Default is unchanged, because the label is documented behaviour that this plugin's own
+# tests assert on. An environment variable for the same reason as TEST_CATEGORIES_WARN_UNMARKED:
+# the process that reads a mutated node ID is often a CHILD pytest, which inherits the environment
+# but not the parent's argv or ini.
+LABEL_NODEIDS_ENV = 'TEST_CATEGORIES_LABEL_NODEIDS'
 
 # Valid enforcement modes for ini option validation
 _VALID_ENFORCEMENT_MODES = {'off', 'warn', 'strict'}
@@ -293,8 +301,13 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         test_size = discovery_service.find_test_size(item_adapter)
         if test_size:
             counts[test_size] += 1
-            # Append size label to test node ID
-            item_adapter.set_nodeid(f'{item_adapter.nodeid} {test_size.label}')
+            # Append the size label to the node ID unless it has been switched off. A node ID is
+            # an identifier other tools match on, and a suite whose tests shell out to a nested
+            # pytest and assert on its output sees ' [SMALL]' appended to the very ids it is
+            # matching. Default is UNCHANGED -- the label is this plugin's documented display
+            # behaviour and many of its own tests assert on it -- so this is an opt-OUT.
+            if os.environ.get(LABEL_NODEIDS_ENV, '1') != '0':
+                item_adapter.set_nodeid(f'{item_adapter.nodeid} {test_size.label}')
 
         # Record current size in suggestion collector (includes None for uncategorized)
         if suggestion_collector is not None:
