@@ -39,5 +39,59 @@ jobs:
       # execv scenario deselected so pristine can reach them, upstream `main` and this branch report
       # an identical 21. Whether they also fail on this runner (Debian) rather than only on the
       # musl box is the open question this job answers first.
+      # SELF-REPORTING, because the log is not readable from where this repo is worked on. Measured
+      # 2026-09-04 on this run's predecessor: the job reported `failure` and the reason could not be
+      # retrieved. /actions/jobs/<task id>/logs 404s, and so do runs/1, runs/1/jobs, runs/5517/jobs
+      # and runs/1/jobs/0/logs -- the commit status points at a WEB path, not an API one, and the
+      # hub's own notes record that a wrong id in that family returns ANOTHER JOB'S LOG rather than
+      # an error. A red gate whose reason cannot be read is not a gate.
+      #
+      # So the summary is written to an artifact, which IS addressable
+      # (/api/v1/repos/<owner>/<repo>/actions/artifacts -> archive_download_url), and to the step
+      # summary for the web UI. `|| true` keeps the step green so the artifact is always uploaded;
+      # the verdict is re-imposed by the last step, which reads the recorded exit code.
       - name: Run the suite
-        run: uv run --frozen --all-groups pytest -q -rs
+        run: |
+          set -o pipefail
+          uv run --frozen --all-groups pytest -q -rs 2>&1 | tee pytest-output.txt || true
+          echo "${PIPESTATUS[0]}" > pytest-exit-code.txt
+        shell: bash
+
+      - name: Build the report
+        if: always()
+        run: |
+          {
+            echo "# pytest"
+            echo
+            echo "exit code: $(cat pytest-exit-code.txt 2>/dev/null || echo 'MISSING -- the run did not reach the end')"
+            echo
+            echo '## summary line'
+            tail -n 3 pytest-output.txt 2>/dev/null || echo 'no output captured'
+            echo
+            echo '## failures'
+            grep '^FAILED' pytest-output.txt 2>/dev/null || echo 'none'
+            echo
+            echo '## errors'
+            grep '^ERROR' pytest-output.txt 2>/dev/null || echo 'none'
+          } > report.md
+          cat report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY" || true
+        shell: bash
+
+      - name: Upload the report
+        if: always()
+        uses: forgejo/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: |
+            report.md
+            pytest-output.txt
+
+      # The gate. Separate from the run step so a red suite still uploads its report first.
+      - name: Fail if the suite failed
+        if: always()
+        run: |
+          code="$(cat pytest-exit-code.txt 2>/dev/null || echo 1)"
+          echo "pytest exit code: $code"
+          exit "$code"
+        shell: bash
