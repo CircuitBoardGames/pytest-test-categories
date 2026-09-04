@@ -716,3 +716,76 @@ class DescribeNodeIdLabelOptOut:
         result = pytester.runpytest('-v')
 
         result.stdout.fnmatch_lines(['*test_one*[[]SMALL[]]*'])
+
+
+@pytest.mark.medium
+class DescribeCensusMode:
+    """--test-categories-suggest must observe UNSIZED tests, which is the population it exists for.
+
+    Before this, pytest_runtest_call returned early for any test without a size marker, so no
+    blocker ever activated, SuggestionCollector.record_observation had no caller anywhere in the
+    package, and every suggestion's reason fell back to duration with the literal string
+    'no external resources' -- which read as a measurement and was a default.
+    """
+
+    def it_observes_resource_use_by_unsized_tests(self, pytester: pytest.Pytester) -> None:
+        """It cites the resource an unmarked test actually touched."""
+        pytester.makepyfile(test_census="""
+            import subprocess
+
+            def test_shells_out():
+                subprocess.run(['true'], check=True)
+            """)
+
+        result = pytester.runpytest('--test-categories-suggest')
+
+        result.assert_outcomes(passed=1)
+        result.stdout.fnmatch_lines(['*test_shells_out*subprocess*'])
+
+    def it_reports_a_clean_test_as_small(self, pytester: pytest.Pytester) -> None:
+        """The negative control: a test touching nothing is not reported as touching something."""
+        pytester.makepyfile(test_census="""
+            def test_pure():
+                assert sum(range(100)) == 4950
+            """)
+
+        result = pytester.runpytest('--test-categories-suggest')
+
+        result.assert_outcomes(passed=1)
+        assert 'subprocess access' not in result.stdout.str()
+        assert 'filesystem access' not in result.stdout.str()
+
+    def it_does_not_enforce_timing_on_the_tests_it_observes(self, pytester: pytest.Pytester) -> None:
+        """A slow UNSIZED test must not fail during a census.
+
+        Observation runs the blockers under the SMALL lens, and SMALL carries a 1s time limit. If
+        the item were actually marked small, pytest_runtest_makereport would fail every test slower
+        than that -- 222 of them in the suite this was built for. It stays unmarked precisely so
+        timing validation, which keys off the marker, does not fire.
+        """
+        pytester.makepyfile(test_census="""
+            import time
+
+            def test_slow_but_unsized():
+                time.sleep(1.2)
+                assert True
+            """)
+
+        result = pytester.runpytest('--test-categories-suggest')
+
+        result.assert_outcomes(passed=1)
+        assert 'Timing Violation' not in result.stdout.str()
+
+    def it_leaves_unsized_tests_alone_when_not_censusing(self, pytester: pytest.Pytester) -> None:
+        """Without the flag, nothing is observed -- ordinary runs are untouched."""
+        pytester.makepyfile(test_census="""
+            import subprocess
+
+            def test_shells_out():
+                subprocess.run(['true'], check=True)
+            """)
+
+        result = pytester.runpytest()
+
+        result.assert_outcomes(passed=1)
+        assert 'Hermeticity Violation Summary' not in result.stdout.str()

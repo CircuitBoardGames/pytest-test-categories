@@ -73,6 +73,7 @@ from pytest_test_categories.services.test_discovery import TestDiscoveryService
 from pytest_test_categories.services.test_reporting import TestReportingService
 from pytest_test_categories.services.timing_validation import TimingValidationService
 from pytest_test_categories.suggestion import (
+    ResourceType,
     SuggestionCollector,
 )
 from pytest_test_categories.timers import WallTimer
@@ -423,19 +424,31 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:  # no
 
     """
     enforcement_mode = _get_enforcement_mode(item.config)
-
-    if enforcement_mode == EnforcementMode.OFF:
-        yield
-        return
-
     config_adapter = PytestConfigAdapter(item.config)
     session_state = config_adapter.get_plugin_state()
     discovery_service = _ensure_discovery_service(session_state)
     item_adapter = PytestItemAdapter(item)
     test_size = discovery_service.find_test_size(item_adapter)
 
-    # Large, XLarge, and unsized tests have no restrictions
-    if test_size is None or test_size in (TestSize.LARGE, TestSize.XLARGE):
+    # CENSUS MODE. --test-categories-suggest is sold as categorising tests from observed behaviour,
+    # but an UNSIZED test never reached the blockers below, so nothing was ever observed and every
+    # suggestion fell back to duration alone. That is the population the flag exists for.
+    #
+    # So when suggest mode is on and a test has no size marker, watch it under the strictest lens
+    # (SMALL sees network, filesystem, process, sleep and database) in WARN, which records through
+    # violation_callback and neither raises nor fails the test.
+    #
+    # No marker is added to the item. That is deliberate and load-bearing: pytest_runtest_makereport
+    # validates timing only when find_test_size() returns a marker, so leaving the item unmarked
+    # keeps the SMALL 1s limit from failing every slow test in the suite being censused.
+    observing = test_size is None and session_state.suggestion_collector is not None
+    if observing:
+        test_size = TestSize.SMALL
+        enforcement_mode = EnforcementMode.WARN
+    elif enforcement_mode == EnforcementMode.OFF:
+        yield
+        return
+    elif test_size is None or test_size in (TestSize.LARGE, TestSize.XLARGE):
         yield
         return
 
@@ -841,6 +854,18 @@ def _get_distribution_config(config: pytest.Config) -> DistributionConfig:
     return DistributionConfig(**targets)
 
 
+# Violation strings the blockers emit, mapped to the census's resource vocabulary. Kept beside the
+# ViolationType map in the callback below; a string missing here is simply not recorded as an
+# observation, rather than being recorded as the wrong resource.
+_RESOURCE_TYPE_BY_VIOLATION = {
+    'network': ResourceType.NETWORK,
+    'filesystem': ResourceType.FILESYSTEM,
+    'process': ResourceType.SUBPROCESS,
+    'database': ResourceType.DATABASE,
+    'sleep': ResourceType.SLEEP,
+}
+
+
 def _make_violation_callback(config: pytest.Config) -> object:
     """Create a violation callback that records to the session's ViolationTracker.
 
@@ -871,6 +896,18 @@ def _make_violation_callback(config: pytest.Config) -> object:
         }
         violation_type = violation_type_map.get(violation_type_str, ViolationType.NETWORK)
         violation_tracker.record_violation(violation_type, test_nodeid, details, failed=failed)
+
+        # Feed the census. SuggestionCollector.record_observation had no caller anywhere in the
+        # package, which is why every suggestion's reason read 'no external resources' -- the
+        # string was a default, not a measurement. This is the one place every blocker's
+        # violations already converge, so it is the one place the bridge belongs.
+        suggestion_collector = session_state.suggestion_collector
+        if suggestion_collector is not None:
+            resource_type = _RESOURCE_TYPE_BY_VIOLATION.get(violation_type_str)
+            if resource_type is not None:
+                cast('SuggestionCollector', suggestion_collector).record_observation(
+                    test_nodeid, resource_type, details
+                )
 
     return callback
 
