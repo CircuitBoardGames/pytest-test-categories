@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pytest_test_categories.services.test_discovery import TestDiscoveryService
+from pytest_test_categories.services.test_discovery import WARN_UNMARKED_ENV, TestDiscoveryService
 from pytest_test_categories.types import TestSize
 from tests._fixtures.test_item import FakeTestItem
 from tests._fixtures.warning_system import FakeWarningSystem
@@ -33,6 +33,17 @@ class FakeMarker:
 @pytest.mark.small
 class DescribeTestDiscoveryService:
     """Tests for TestDiscoveryService class."""
+
+    @pytest.fixture(autouse=True)
+    def _opt_in_to_unmarked_warnings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Opt in to the per-unmarked-test warning for this class.
+
+        The warning is off by default so that a suite whose tests shell out to a nested pytest
+        does not read the plugin's own output as the child's findings. These tests are about the
+        warning itself, so they turn it on explicitly.
+        """
+        monkeypatch.setenv(WARN_UNMARKED_ENV, '1')
+
 
     def it_finds_single_size_marker_on_test_item(self) -> None:
         """It finds and returns the TestSize when test has a single size marker."""
@@ -326,3 +337,44 @@ class DescribeGetTimeout:
 
         assert result == 1.0
         assert isinstance(result, float)
+
+
+class DescribeUnmarkedWarningOptIn:
+    """The per-unmarked-test warning is opt-in, and the opt-in is an environment variable."""
+
+    def it_stays_silent_for_missing_marker_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It returns None WITHOUT warning when the opt-in is unset.
+
+        This is the behaviour the default exists for. A suite whose tests spawn a nested pytest
+        and assert on its output cannot distinguish the plugin's warnings from the child's own
+        findings, and warning per collected test made every such assertion unreliable.
+        """
+        monkeypatch.delenv(WARN_UNMARKED_ENV, raising=False)
+        test_item = FakeTestItem(nodeid='test_module.py::test_no_marker')
+        warning_system = FakeWarningSystem()
+        service = TestDiscoveryService(warning_system=warning_system)
+
+        result = service.find_test_size(test_item)
+
+        assert result is None
+        assert not warning_system.has_warning('Test has no size marker: test_module.py::test_no_marker')
+
+    def it_stays_silent_when_the_opt_in_is_not_exactly_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It treats any value other than '1' as off, so a stray truthy string does not enable it."""
+        monkeypatch.setenv(WARN_UNMARKED_ENV, 'true')
+        test_item = FakeTestItem(nodeid='test_module.py::test_no_marker')
+        warning_system = FakeWarningSystem()
+        service = TestDiscoveryService(warning_system=warning_system)
+
+        assert service.find_test_size(test_item) is None
+        assert not warning_system.has_warning('Test has no size marker: test_module.py::test_no_marker')
+
+    def it_warns_when_the_opt_in_is_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It warns once the environment variable is set to '1' -- the control for the two above."""
+        monkeypatch.setenv(WARN_UNMARKED_ENV, '1')
+        test_item = FakeTestItem(nodeid='test_module.py::test_no_marker')
+        warning_system = FakeWarningSystem()
+        service = TestDiscoveryService(warning_system=warning_system)
+
+        assert service.find_test_size(test_item) is None
+        assert warning_system.has_warning('Test has no size marker: test_module.py::test_no_marker')

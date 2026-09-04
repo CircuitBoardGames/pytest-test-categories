@@ -13,16 +13,20 @@ import pytest
 from pytest_test_categories.distribution.stats import TestCounts
 from pytest_test_categories.reporting import TestSizeReport
 from pytest_test_categories.types import TestSize
+from pytest_test_categories.suggestion import ResourceType, SuggestionCollector
 from pytest_test_categories.xdist_compat import (
     WORKEROUTPUT_DISTRIBUTION_KEY,
     WORKEROUTPUT_REPORT_KEY,
+    WORKEROUTPUT_SUGGESTION_KEY,
     XDIST_WORKER_ENV,
     deserialize_distribution_counts,
     is_xdist_controller,
     is_xdist_worker,
     merge_report_data,
+    merge_suggestion_data,
     serialize_distribution_counts,
     serialize_report_data,
+    serialize_suggestion_data,
 )
 
 if TYPE_CHECKING:
@@ -362,3 +366,74 @@ class DescribeWorkerOutputKeys:
     def it_has_worker_env_var(self) -> None:
         """Has a constant for worker env var name."""
         assert XDIST_WORKER_ENV == 'PYTEST_XDIST_WORKER'
+
+
+@pytest.mark.small
+class DescribeSuggestionAggregation:
+    """Suggestion observations must survive the trip from an xdist worker to the controller.
+
+    Without this the --test-categories-suggest flag produces NOTHING under -n, silently: workers
+    record observations the controller never receives, and there is no error to notice.
+    """
+
+    def it_uses_a_distinct_workeroutput_key(self) -> None:
+        """Its key does not collide with the distribution or report keys."""
+        assert WORKEROUTPUT_SUGGESTION_KEY not in {WORKEROUTPUT_DISTRIBUTION_KEY, WORKEROUTPUT_REPORT_KEY}
+
+    def it_round_trips_observations_and_durations(self) -> None:
+        """A worker's collector serializes and merges into a controller's with nothing lost."""
+        worker = SuggestionCollector()
+        worker.record_observation('test_api.py::test_fetch', ResourceType.NETWORK, 'connect example.com:443')
+        worker.record_observation('test_api.py::test_fetch', ResourceType.FILESYSTEM, 'open /tmp/x')
+        worker.record_execution_time('test_api.py::test_fetch', 2.5)
+
+        controller = SuggestionCollector()
+        merge_suggestion_data(controller, serialize_suggestion_data(worker))
+
+        assert controller.get_execution_time('test_api.py::test_fetch') == 2.5
+        merged = controller.get_observations('test_api.py::test_fetch')
+        assert {o.resource_type for o in merged} == {ResourceType.NETWORK, ResourceType.FILESYSTEM}
+        assert {o.details for o in merged} == {'connect example.com:443', 'open /tmp/x'}
+
+    def it_merges_two_workers_without_collision(self) -> None:
+        """Each test belongs to exactly one worker, so merges are additive by node ID."""
+        first, second = SuggestionCollector(), SuggestionCollector()
+        first.record_observation('test_a.py::test_one', ResourceType.NETWORK, 'a')
+        first.record_execution_time('test_a.py::test_one', 1.0)
+        second.record_observation('test_b.py::test_two', ResourceType.SUBPROCESS, 'b')
+        second.record_execution_time('test_b.py::test_two', 2.0)
+
+        controller = SuggestionCollector()
+        merge_suggestion_data(controller, serialize_suggestion_data(first))
+        merge_suggestion_data(controller, serialize_suggestion_data(second))
+
+        assert controller.get_execution_time('test_a.py::test_one') == 1.0
+        assert controller.get_execution_time('test_b.py::test_two') == 2.0
+        assert controller.observation_count == 2
+
+    def it_omits_tests_that_recorded_no_observations(self) -> None:
+        """A test with only a duration does not create an empty observation list on the wire."""
+        worker = SuggestionCollector()
+        worker.record_execution_time('test_c.py::test_quiet', 0.01)
+
+        payload = serialize_suggestion_data(worker)
+
+        assert payload['observations'] == {}
+        assert payload['execution_times'] == {'test_c.py::test_quiet': 0.01}
+
+    def it_does_not_carry_current_sizes_across_the_wire(self) -> None:
+        """Current sizes stay on the controller, which collects every test itself.
+
+        Re-sending them would reintroduce the double-count the distribution path guards against.
+        """
+        worker = SuggestionCollector()
+        worker.record_current_size('test_d.py::test_marked', TestSize.SMALL)
+
+        assert 'current_sizes' not in serialize_suggestion_data(worker)
+
+    def it_tolerates_an_empty_payload(self) -> None:
+        """A worker that ran no tests contributes nothing rather than raising."""
+        controller = SuggestionCollector()
+        merge_suggestion_data(controller, {})
+
+        assert controller.observation_count == 0
