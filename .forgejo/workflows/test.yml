@@ -1,0 +1,43 @@
+name: Test
+
+# This fork's suite, on hub's runner. It replaces six MIGRATED UPSTREAM workflows
+# (auto-merge, ci, release, secret-scanning, security, test-release) that came in with the
+# repository and were deleted in the same commit that added this file. They were written for
+# upstream's GitHub — they cannot pass here — and two of them (auto-merge, release) merge and
+# publish. Forgejo reads `.github/workflows/` as well as this directory, so leaving them in place
+# meant the first push to `main` would arm all six at once on a `capacity: 1` runner. That exact
+# failure is on record: migrating a fork into Forgejo replayed upstream's CI and starved the job
+# actually under test until a dozen queued jobs drained (docs/agents/forge-migration.md in the hub
+# repo).
+#
+# Triggers on EVERY branch, not just `main`, because this repository exists to carry patches on a
+# long-lived branch that is never merged to `main` — gating only `main` would gate nothing.
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      # A collection error aborts pytest before any test runs, and the summary then reports the
+      # number of FILES that failed to import, which reads exactly like a failure count. Fail here,
+      # under a name that says collection, rather than downstream as a small reassuring "1 error".
+      - name: Collection check
+        run: uv run --frozen --all-groups pytest --collect-only -q
+      # THE WHOLE SUITE, tests/bdd INCLUDED. That directory used to end the run: a BDD scenario
+      # called os.execv for real against an unintercepted call, so pytest was replaced by /bin/echo
+      # and the run exited 0 having completed 1 of 91 tests. Excluding it would hide the regression
+      # this job exists to catch. Serial, not -n: the suite spawns a nested pytest per test.
+      #
+      # 21 failures are inherited from upstream and are NOT caused by this fork's patches — with the
+      # execv scenario deselected so pristine can reach them, upstream `main` and this branch report
+      # an identical 21. Whether they also fail on this runner (Debian) rather than only on the
+      # musl box is the open question this job answers first.
+      - name: Run the suite
+        run: uv run --frozen --all-groups pytest -q -rs
