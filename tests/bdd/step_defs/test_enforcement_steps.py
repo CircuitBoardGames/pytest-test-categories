@@ -344,15 +344,20 @@ def it_small_test_uses_threadpool():
 
 @given('a test file with a small test that uses multiprocessing Process')
 def create_small_test_multiprocessing(context: EnforcementContext) -> None:
-    """Create a test using multiprocessing.Process."""
+    """Create a test using multiprocessing.Process.
+
+    `worker` is module level: forkserver (Python 3.14's Linux default) pickles the target, and a
+    function defined inside the test cannot be pickled.
+    """
     context.test_files['test_multiprocessing.py'] = """
 import pytest
 import multiprocessing
 
+def worker():
+    pass
+
 @pytest.mark.small
 def it_small_test_uses_multiprocessing():
-    def worker():
-        pass
     p = multiprocessing.Process(target=worker)
     p.start()
     p.join()
@@ -433,15 +438,16 @@ def it_medium_test_spawns_thread():
 
 @given('a test file with a large test that uses multiprocessing Process')
 def create_large_test_multiprocessing(context: EnforcementContext) -> None:
-    """Create a large test using multiprocessing."""
+    """Create a large test using multiprocessing (module-level `worker`, as above)."""
     context.test_files['test_large_multiprocessing.py'] = """
 import pytest
 import multiprocessing
 
+def worker():
+    pass
+
 @pytest.mark.large
 def it_large_test_uses_multiprocessing():
-    def worker():
-        pass
     p = multiprocessing.Process(target=worker)
     p.start()
     p.join()

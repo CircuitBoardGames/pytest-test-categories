@@ -442,6 +442,26 @@ class DescribeSubprocessPatchingBlocker:
 
         assert multiprocessing.Process is original_mp_process
 
+    def it_pickles_a_patched_process_as_a_class_pickle_can_find(self) -> None:
+        """Verify a patched Process reduces to a class reachable by import path.
+
+        forkserver (Python 3.14's Linux default) pickles the Process it starts, and pickle finds a
+        class by import path. The patched class is local to a method, so `start()` raised
+        PicklingError before any process existed. The child only runs the target, so it is rebuilt
+        as the unpatched Process -- including under a blocker that is itself nested in another.
+        """
+        import pickle  # noqa: PLC0415
+
+        blocker = SubprocessPatchingBlocker()
+        blocker.activate(TestSize.LARGE, EnforcementMode.STRICT)
+        try:
+            proc = multiprocessing.Process(target=print)
+            rebuilt_as = proc.__reduce_ex__(pickle.DEFAULT_PROTOCOL)[1][0]
+            assert rebuilt_as.__qualname__ == 'Process'
+            assert pickle.loads(pickle.dumps(rebuilt_as)) is rebuilt_as  # noqa: S301
+        finally:
+            blocker.deactivate()
+
     def it_restores_all_functions_on_reset(self) -> None:
         """Verify all patched functions are restored on reset."""
         original_popen = subprocess.Popen

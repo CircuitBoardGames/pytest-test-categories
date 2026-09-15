@@ -640,6 +640,25 @@ class SubprocessPatchingBlocker(ProcessBlockerPort):
         class BlockingProcess(original_mp_process):  # type: ignore[valid-type,misc]
             """Process wrapper that enforces process blocking rules."""
 
+            _is_blocking_process = True
+
+            def __reduce_ex__(self, protocol: Any) -> Any:  # noqa: ANN401
+                """Pickle as the first unpatched Process class, which pickle can find by import path.
+
+                forkserver (Python 3.14's Linux default) pickles the Process it starts, and this
+                class is local to a method, so `start()` raised PicklingError before any process
+                existed. The child only runs the target, so it needs no wrapper. Blockers nest (the
+                plugin's own around a test's), so skip every wrapper, not just this one.
+                """
+                import copyreg  # noqa: PLC0415
+
+                reduced = super().__reduce_ex__(protocol)
+                plain = next(c for c in type(self).__mro__ if not c.__dict__.get('_is_blocking_process'))
+                # NOT copyreg.__newobj__: the C pickler requires its first argument to BE the pickled
+                # object's class, which is the local one. `_reconstructor` builds `plain` bare, and the
+                # state that follows is applied exactly as before.
+                return (copyreg._reconstructor, (plain, object, None), *reduced[2:])  # noqa: SLF001
+
             def start(self) -> None:
                 """Check permissions then delegate to actual start."""
                 target = getattr(self, '_target', None) or getattr(self, 'target', None)
