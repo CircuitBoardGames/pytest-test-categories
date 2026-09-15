@@ -10,12 +10,11 @@ name: Test
 # actually under test until a dozen queued jobs drained (docs/agents/forge-migration.md in the hub
 # repo).
 #
-# Triggers on EVERY branch, not just `main`, because this repository exists to carry patches on a
-# long-lived branch that is never merged to `main` — gating only `main` would gate nothing.
+# PR-ONLY: nothing runs after a merge (hub operator, 2026-09-15, hub#1140). The patch branch is the
+# default branch, so PRs into it are what this gates; `main` stays upstream for syncing.
 
 on:
   pull_request:
-  push:
   workflow_dispatch:
 
 jobs:
