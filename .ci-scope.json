@@ -1,0 +1,32 @@
+{
+  "tests_dir": "tests",
+  "map": "tests/impact-map.json",
+  "path_roots": [
+    "src",
+    "tests",
+    "examples",
+    "docs",
+    ".forgejo",
+    ".github"
+  ],
+  "path_files": [
+    "pyproject.toml",
+    "pytest.ini",
+    "tox.ini"
+  ],
+  "import_roots": [
+    "src/",
+    "tests/plugins/"
+  ],
+  "machinery": [
+    "pyproject.toml",
+    "tests/conftest.py",
+    "tests/bdd/conftest.py",
+    "tests/bdd/step_defs/conftest.py",
+    "tests/benchmarks/conftest.py",
+    "examples/enforcement_demo/tests/conftest.py",
+    "examples/sample_project/tests/conftest.py",
+    ".forgejo/workflows/test.yml"
+  ],
+  "pytest_cmd": ".ci-venv/bin/python -m pytest"
+}

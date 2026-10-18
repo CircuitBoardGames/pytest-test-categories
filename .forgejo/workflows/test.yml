@@ -1,109 +1,111 @@
 name: Test
 
-# This fork's suite, on hub's runner. It replaces six MIGRATED UPSTREAM workflows
-# (auto-merge, ci, release, secret-scanning, security, test-release) that came in with the
-# repository and were deleted in the same commit that added this file. They were written for
-# upstream's GitHub — they cannot pass here — and two of them (auto-merge, release) merge and
-# publish. Forgejo reads `.github/workflows/` as well as this directory, so leaving them in place
-# meant the first push to `main` would arm all six at once on a `capacity: 1` runner. That exact
-# failure is on record: migrating a fork into Forgejo replayed upstream's CI and starved the job
-# actually under test until a dozen queued jobs drained (docs/agents/forge-migration.md in the hub
-# repo).
+# Forge gate for a Python repo, committed by `hub-api repo provision --kind python`, at parity with
+# the hub's own pytest job (operator, 2026-10-18: "the same standards for CI ... in every repo now
+# and in the future"). CI-Scope picks the test files a diff can reach from the repo's OBSERVED impact
+# map, and runs everything whenever it cannot tell; ci-xdist-n picks -n from the runner's CPU cap;
+# two PR gates read the change itself. The repo-specific half is `.ci-scope.json` at the root
+# (tests_dir, map, path_roots, machinery); the map is re-recorded weekly by the box's refresh job.
+# The repo's branch protection requires `Test /*`, the contexts this workflow registers.
 #
-# PR-ONLY: nothing runs after a merge (hub operator, 2026-09-15, hub#1140). The patch branch is the
-# default branch, so PRs into it are what this gates; `main` stays upstream for syncing.
+# A present `.forgejo/workflows` is read INSTEAD of `.github/workflows`. The runner is host-mode
+# (labels ubuntu-latest:host): tools install into the job's own venv, never the shared runner home.
+# pytest exits 5 when it collects nothing, so a repo without tests is RED here. Adapt the install
+# step to the repo's real dependencies.
 
 on:
   pull_request:
+  # No `push:` -- CI is preventative only, nothing runs after a merge (operator, 2026-09-15).
   workflow_dispatch:
 
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  pytest:
+  test:
     name: pytest
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # A draft waits off the runner: the queue un-drafts it at the front, and that edit runs this.
+    if: ${{ !github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'queue:not-admitted') }}
     steps:
+      - name: Admission — a held PR must report not-passing, never green
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'queue:not-admitted') }}
+        run: |
+          echo "held: queue:not-admitted is attached, so this gate is suppressed and must not pass"
+          exit 1
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-      # A collection error aborts pytest before any test runs, and the summary then reports the
-      # number of FILES that failed to import, which reads exactly like a failure count. Fail here,
-      # under a name that says collection, rather than downstream as a small reassuring "1 error".
-      - name: Collection check
-        run: uv run --frozen --all-groups pytest --collect-only -q
-      # THE WHOLE SUITE, tests/bdd INCLUDED. That directory used to end the run: a BDD scenario
-      # called os.execv for real against an unintercepted call, so pytest was replaced by /bin/echo
-      # and the run exited 0 having completed 1 of 91 tests. Excluding it would hide the regression
-      # this job exists to catch. Serial, not -n: the suite spawns a nested pytest per test.
-      #
-      # 21 failures are inherited from upstream and are NOT caused by this fork's patches — with the
-      # execv scenario deselected so pristine can reach them, upstream `main` and this branch report
-      # an identical 21. Whether they also fail on this runner (Debian) rather than only on the
-      # musl box is the open question this job answers first.
-      # SELF-REPORTING, because the log is not readable from where this repo is worked on. Measured
-      # 2026-09-04 on this run's predecessor: the job reported `failure` and the reason could not be
-      # retrieved. /actions/jobs/<task id>/logs 404s, and so do runs/1, runs/1/jobs, runs/5517/jobs
-      # and runs/1/jobs/0/logs -- the commit status points at a WEB path, not an API one, and the
-      # hub's own notes record that a wrong id in that family returns ANOTHER JOB'S LOG rather than
-      # an error. A red gate whose reason cannot be read is not a gate.
-      #
-      # So the summary is written to an artifact, which IS addressable
-      # (/api/v1/repos/<owner>/<repo>/actions/artifacts -> archive_download_url), and to the step
-      # summary for the web UI. `|| true` keeps the step green so the artifact is always uploaded;
-      # the verdict is re-imposed by the last step, which reads the recorded exit code.
-      # `set +e` and NO `|| true`. The first version of this step ended the pipeline with `|| true`
-      # and then read ${PIPESTATUS[0]} -- but `|| true` RUNS, and running it resets PIPESTATUS to
-      # (0), so the recorded code was `true`'s and not pytest's. Measured on run 5518: the job
-      # reported SUCCESS while its own artifact said `21 failed, 1452 passed`. A gate that cannot
-      # report red is worse than no gate, and it was the artifact -- not the status -- that caught
-      # it.
-      #
-      # `-rfsE` and not `-rs`: `-r` REPLACES the report characters, so `-rs` asks for skips ONLY and
-      # silently drops the FAILED list. That is how the same run produced a failure count with no
-      # failure names, leaving "are these the same failures we see locally?" unanswerable.
-      - name: Run the suite
-        run: |
-          set +e
-          uv run --frozen --all-groups pytest -q -rfsE 2>&1 | tee pytest-output.txt
-          code=${PIPESTATUS[0]}
-          echo "$code" > pytest-exit-code.txt
-          echo "recorded pytest exit code: $code"
-          exit 0
-        shell: bash
-
-      - name: Build the report
-        if: always()
-        run: |
-          {
-            echo "# pytest"
-            echo
-            echo "exit code: $(cat pytest-exit-code.txt 2>/dev/null || echo 'MISSING -- the run did not reach the end')"
-            echo
-            echo '## summary line'
-            tail -n 3 pytest-output.txt 2>/dev/null || echo 'no output captured'
-            echo
-            echo '## failures'
-            grep '^FAILED' pytest-output.txt 2>/dev/null || echo 'none'
-            echo
-            echo '## errors'
-            grep '^ERROR' pytest-output.txt 2>/dev/null || echo 'none'
-          } > report.md
-          cat report.md
-          cat report.md >> "$GITHUB_STEP_SUMMARY" || true
-        shell: bash
-
-      - name: Upload the report
-        if: always()
-        uses: forgejo/upload-artifact@v4
         with:
-          name: pytest-report
-          path: |
-            report.md
-            pytest-output.txt
-
-      # The gate. Separate from the run step so a red suite still uploads its report first.
-      - name: Fail if the suite failed
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/CI-Scope
+          ref: v0.4.0
+          path: .ci-scope
+      # This repo's test dependencies (pytest-bdd, pytest-benchmark, pytest-mock, ...) are uv
+      # dependency groups pinned in uv.lock, which pip cannot read: kept from the previous gate.
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - name: Install into a job venv
+        run: |
+          python3 -m venv .ci-venv
+          .ci-venv/bin/pip install -q pytest pytest-xdist pyyaml
+          UV_PROJECT_ENVIRONMENT=.ci-venv uv sync -q --frozen --all-groups --inexact
+      - name: Where the tests live (.ci-scope.json tests_dir)
+        id: cfg
+        run: python3 -c 'import json; print("tests_dir=" + json.load(open(".ci-scope.json"))["tests_dir"])' | tee -a "$GITHUB_OUTPUT"
+      - name: Collection check — an aborted collection hides an unknown number of tests
+        run: .ci-venv/bin/python -m pytest ${{ steps.cfg.outputs.tests_dir }} --collect-only -q
+      - name: Which test files can this diff reach?
+        id: scope
+        if: github.event_name == 'pull_request'
+        run: .ci-scope/bin/ci-pytest-scope | tee -a "$GITHUB_OUTPUT"
+      - name: Decide -n by reading the runner's CPU cap (1 if capped under one core, else 4)
+        id: xdist
+        run: echo "n=$(.ci-scope/bin/ci-xdist-n)" | tee -a "$GITHUB_OUTPUT"
+      - name: pytest
+        run: .ci-venv/bin/python -m pytest ${{ steps.scope.outputs.targets || steps.cfg.outputs.tests_dir }} -q -n ${{ steps.xdist.outputs.n }} -rfsE --durations=30
+      - name: pytest, the tests that refuse -n (serial)
+        # it_xdist_compatibility.py starts nested pytest sessions and skips itself under -n ("Cannot run
+        # nested xdist sessions"), so the parallel step above reports its 23 tests as skipped. Run here,
+        # serially, they still gate every PR.
+        run: .ci-venv/bin/python -m pytest tests/integration/it_xdist_compatibility.py -q -rfsE
+      - name: Tree state and survivors after the suite
         if: always()
         run: |
-          code="$(cat pytest-exit-code.txt 2>/dev/null || echo 1)"
-          echo "pytest exit code: $code"
-          exit "$code"
-        shell: bash
+          echo "tree state: $(git status --porcelain --untracked-files=all | wc -l | tr -d ' ') path(s) changed"
+          git status --porcelain --untracked-files=all | head -50
+          echo "processes younger than this job:"
+          ps -eo pid,ppid,etimes,stat,args --sort=etimes | awk 'NR==1 || ($3 < 2400 && ++n <= 40)'
+      - name: New tests must fail on the base
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" || true
+          # ABSOLUTE, because the base run's cwd is a temporary worktree: `.ci-scope.json`'s relative
+          # `.ci-venv/bin/python` is FileNotFoundError there, on exactly the PRs that add a test.
+          rc=0; NTFB_PYTEST="$PWD/.ci-venv/bin/python -m pytest" .ci-scope/bin/ci-new-tests-fail-on-base > ntfb.txt || rc=$?
+          cat ntfb.txt; cat ntfb.txt >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Removed assertions need a stated reason (report-only)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" || true
+          rc=0; .ci-scope/bin/ci-removed-assertions > rma.txt || rc=$?
+          cat rma.txt; cat rma.txt >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Record whether this PR run was full or scoped
+        if: github.event_name == 'pull_request' && always()
+        env:
+          MODE: ${{ steps.scope.outputs.mode }}
+          TARGETS: ${{ steps.scope.outputs.targets }}
+          REASON: ${{ steps.scope.outputs.reason }}
+        run: |
+          if [ "${MODE}" = "scoped" ] && [ -n "${TARGETS}" ]; then
+            line="pytest: scoped: $(printf '%s\n' ${TARGETS} | wc -l | tr -d ' ') file(s) -- ${REASON}"
+          else
+            line="pytest: full -- ${REASON:-no scope verdict: the whole suite ran}"
+          fi
+          echo "$line"; echo "$line" >> "$GITHUB_STEP_SUMMARY"

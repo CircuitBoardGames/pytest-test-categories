@@ -1,0 +1,366 @@
+{
+ "generated": {
+  "sha": "31043ce5ebe7df7064e4d343971ad0f6fcb23b01",
+  "time": "2026-10-18T20:09:50Z"
+ },
+ "tests": {
+  "tests/bdd/step_defs/test_enforcement_steps.py": [
+   "./",
+   "__init__.py",
+   "src/",
+   "tests",
+   "tests/__init__.py",
+   "tests/bdd",
+   "tests/bdd/__init__.py",
+   "tests/bdd/step_defs",
+   "tests/bdd/step_defs/__init__.py",
+   "tests/plugins"
+  ],
+  "tests/benchmarks/bench_collection.py": [
+   "__init__.py",
+   "tests",
+   "tests/__init__.py",
+   "tests/benchmarks",
+   "tests/benchmarks/__init__.py",
+   "tests/benchmarks/bench_collection.py"
+  ],
+  "tests/benchmarks/bench_execution.py": [
+   "__init__.py",
+   "tests",
+   "tests/__init__.py",
+   "tests/benchmarks",
+   "tests/benchmarks/__init__.py",
+   "tests/benchmarks/bench_execution.py"
+  ],
+  "tests/benchmarks/bench_reporting.py": [
+   "tests/benchmarks/bench_reporting.py"
+  ],
+  "tests/integration/it_adapter_integration.py": [
+   "./",
+   "__init__.py",
+   "src/",
+   "tests",
+   "tests/__init__.py",
+   "tests/integration",
+   "tests/integration/__init__.py",
+   "tests/integration/it_adapter_integration.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_end_to_end.py": [
+   "./",
+   "src/",
+   "tests/integration/it_end_to_end.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_filesystem_blocker_integration.py": [
+   "./",
+   "__init__.py",
+   "src/",
+   "tests",
+   "tests/__init__.py",
+   "tests/integration",
+   "tests/integration/__init__.py",
+   "tests/integration/it_filesystem_blocker_integration.py"
+  ],
+  "tests/integration/it_filesystem_blocking_hooks.py": [
+   "./",
+   "src/",
+   "tests/integration/it_filesystem_blocking_hooks.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_hermeticity_summary.py": [
+   "./",
+   "src/",
+   "tests/integration/it_hermeticity_summary.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_network_blocker_integration.py": [
+   "tests/integration/it_network_blocker_integration.py"
+  ],
+  "tests/integration/it_network_blocking_hooks.py": [
+   "./",
+   "src/",
+   "tests/integration/it_network_blocking_hooks.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_plugin_integration.py": [
+   "./",
+   "src/",
+   "tests/integration/it_plugin_integration.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_process_blocking_hooks.py": [
+   "./",
+   "__init__.py",
+   "src/",
+   "tests",
+   "tests/__init__.py",
+   "tests/integration",
+   "tests/integration/__init__.py",
+   "tests/integration/it_process_blocking_hooks.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_service_integration.py": [
+   "tests/integration/it_service_integration.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_suggestion_mode.py": [
+   "./",
+   "src/",
+   "tests/integration/it_suggestion_mode.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_thread_monitoring_hooks.py": [
+   "./",
+   "src/",
+   "tests/integration/it_thread_monitoring_hooks.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_xdist_compatibility.py": [
+   "tests/integration/it_xdist_compatibility.py"
+  ],
+  "tests/it_wall_timer_integration.py": [
+   "tests/it_wall_timer_integration.py"
+  ],
+  "tests/test_base_classes_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_base_classes_feature.py"
+  ],
+  "tests/test_categorization_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_categorization_feature.py"
+  ],
+  "tests/test_counting_service_module.py": [
+   "./",
+   "src/",
+   "tests/test_counting_service_module.py"
+  ],
+  "tests/test_database_blocker_module.py": [
+   "tests/test_database_blocker_module.py"
+  ],
+  "tests/test_database_coverage_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_database_coverage_feature.py"
+  ],
+  "tests/test_distribution_analysis_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_distribution_analysis_feature.py"
+  ],
+  "tests/test_distribution_config_module.py": [
+   "./",
+   "src/",
+   "tests/test_distribution_config_module.py"
+  ],
+  "tests/test_distribution_edge_cases_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_distribution_edge_cases_feature.py"
+  ],
+  "tests/test_distribution_enforcement_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_distribution_enforcement_feature.py"
+  ],
+  "tests/test_distribution_enforcement_module.py": [
+   "./",
+   "src/",
+   "tests/test_distribution_enforcement_module.py"
+  ],
+  "tests/test_distribution_stats_module.py": [
+   "tests/test_distribution_stats_module.py"
+  ],
+  "tests/test_distribution_target_options_module.py": [
+   "tests/test_distribution_target_options_module.py"
+  ],
+  "tests/test_distribution_validation_service_module.py": [
+   "tests/test_distribution_validation_service_module.py"
+  ],
+  "tests/test_enum_properties_feature.py": [
+   "tests/test_enum_properties_feature.py"
+  ],
+  "tests/test_error_messages_feature.py": [
+   "tests/test_error_messages_feature.py"
+  ],
+  "tests/test_external_systems_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_external_systems_feature.py"
+  ],
+  "tests/test_external_systems_module.py": [
+   "tests/test_external_systems_module.py"
+  ],
+  "tests/test_fake_timer.py": [
+   "tests/test_fake_timer.py"
+  ],
+  "tests/test_filesystem_blocker_module.py": [
+   "tests/test_filesystem_blocker_module.py"
+  ],
+  "tests/test_formatting_module.py": [
+   "tests/test_formatting_module.py"
+  ],
+  "tests/test_hermeticity_summary_module.py": [
+   "tests/test_hermeticity_summary_module.py"
+  ],
+  "tests/test_infratructure.py": [
+   "tests/test_infratructure.py"
+  ],
+  "tests/test_json_report_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_json_report_feature.py"
+  ],
+  "tests/test_json_report_module.py": [
+   "./",
+   "src/",
+   "tests/test_json_report_module.py"
+  ],
+  "tests/test_marker_inheritance_conflicts_module.py": [
+   "./",
+   "src/",
+   "tests/test_marker_inheritance_conflicts_module.py"
+  ],
+  "tests/test_network_blocker_module.py": [
+   "tests/test_network_blocker_module.py"
+  ],
+  "tests/test_network_restriction_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_network_restriction_feature.py"
+  ],
+  "tests/test_output_writer_port_module.py": [
+   "./",
+   "src/",
+   "tests/test_output_writer_port_module.py"
+  ],
+  "tests/test_package_level_imports.py": [
+   "src/pytest_test_categories/",
+   "tests/test_package_level_imports.py"
+  ],
+  "tests/test_performance_baseline_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_performance_baseline_feature.py"
+  ],
+  "tests/test_performance_baseline_module.py": [
+   "./",
+   "src/",
+   "tests/test_performance_baseline_module.py"
+  ],
+  "tests/test_plugin_edge_cases_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_plugin_edge_cases_feature.py"
+  ],
+  "tests/test_plugin_module.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_plugin_module.py"
+  ],
+  "tests/test_process_blocker_module.py": [
+   "./",
+   "src/",
+   "tests/test_process_blocker_module.py"
+  ],
+  "tests/test_report_edge_cases_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_report_edge_cases_feature.py"
+  ],
+  "tests/test_report_generation_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_report_generation_feature.py"
+  ],
+  "tests/test_reporting_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_reporting_feature.py"
+  ],
+  "tests/test_reporting_module.py": [
+   "./",
+   "src/",
+   "tests/test_reporting_module.py"
+  ],
+  "tests/test_sleep_blocker_module.py": [
+   "tests/test_sleep_blocker_module.py"
+  ],
+  "tests/test_suggestion_collector_module.py": [
+   "tests/test_suggestion_collector_module.py"
+  ],
+  "tests/test_suggestion_summary_service_module.py": [
+   "tests/test_suggestion_summary_service_module.py"
+  ],
+  "tests/test_test_discovery_service_module.py": [
+   "tests/test_test_discovery_service_module.py"
+  ],
+  "tests/test_test_item_port_module.py": [
+   "tests/test_test_item_port_module.py"
+  ],
+  "tests/test_test_reporting_service_module.py": [
+   "tests/test_test_reporting_service_module.py"
+  ],
+  "tests/test_thread_monitor_module.py": [
+   "tests/test_thread_monitor_module.py"
+  ],
+  "tests/test_timer_state_machine_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_timer_state_machine_feature.py"
+  ],
+  "tests/test_timer_violation_feature.py": [
+   "./",
+   "src/",
+   "tests/plugins",
+   "tests/test_timer_violation_feature.py"
+  ],
+  "tests/test_timers_module.py": [
+   "./",
+   "src/",
+   "tests/test_timers_module.py"
+  ],
+  "tests/test_timing_module.py": [
+   "tests/test_timing_module.py"
+  ],
+  "tests/test_timing_validation_service_module.py": [
+   "tests/test_timing_validation_service_module.py"
+  ],
+  "tests/test_types_module.py": [
+   "tests/test_types_module.py"
+  ],
+  "tests/test_violation_tracking_module.py": [
+   "tests/test_violation_tracking_module.py"
+  ],
+  "tests/test_warning_system_port_module.py": [
+   "tests/test_warning_system_port_module.py"
+  ],
+  "tests/test_workflow_action_inputs.py": [
+   "tests/test_workflow_action_inputs.py"
+  ],
+  "tests/test_workflow_url_reachability.py": [
+   "tests/test_workflow_url_reachability.py"
+  ],
+  "tests/test_xdist_compat_module.py": [
+   "tests/test_xdist_compat_module.py"
+  ]
+ }
+}

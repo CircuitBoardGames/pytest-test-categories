@@ -40,3 +40,5 @@ docs/_build/
 docs/api/
 .worktrees/
 .worktrees/
+.ci-scope/
+.ci-venv/
