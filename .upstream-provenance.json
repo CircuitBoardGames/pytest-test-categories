@@ -1,0 +1,6 @@
+{
+  "true_upstream": "https://github.com/mikelane/pytest-test-categories",
+  "true_upstream_branch": "main",
+  "last_synced_upstream_sha": "d3ae6809033216d5c356e6e158eac3eae8701b17",
+  "note": "Provenance marker for the CircuitBoardGames/ClaudeCode maintainer agent's P2 vendor-sync drift check; advance last_synced_upstream_sha in each true-upstream->fork sync PR. Seeded 2026-10-27 by agent/upstream-sync-2026-10-27, which merged upstream 87de3723aedb..d3ae68090332 (v1.2.2). The landing branch is fix/quiet-unmarked-warning-and-xdist-suggestions (the default branch, protected by Test and Markers), not main, which still sits at the merge-base. The fork's divergence: the unmarked-warning opt-in and xdist suggestion round-trip, os.exec* interception, node-ID size labels switch, unsized-test observation, the forkserver pickling fix and the inherited-failure fixes (src/, tests/); upstream's six .github/workflows deleted in favour of .forgejo/workflows (Test, Markers) plus .ci-scope.json and tests/impact-map.json. Because .github/workflows/release.yml stays deleted, upstream's two tests that parse it (tests/test_release_changelog_extraction.py, tests/test_release_plugin_registration_check.py) are dropped too. Upstream syncs merge around this divergence."
+}
