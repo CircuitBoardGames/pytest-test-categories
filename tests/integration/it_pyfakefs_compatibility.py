@@ -179,6 +179,8 @@ class DescribeFilesystemEnforcementWithPyfakefs:
     ) -> None:
         """Verify the fix doesn't disable enforcement wholesale.
 
+        PASSES ON BASE: regression guard; the base already blocks real filesystem access.
+
         A small test that touches the REAL filesystem (no `fs` fixture, no
         pyfakefs involved at all) must still fail with
         FilesystemAccessViolationError.

@@ -534,7 +534,10 @@ class DescribeFilesystemPatchingBlockerWithVirtualFilesystem:
         blocker.deactivate()
 
     def it_still_blocks_access_for_small_tests_when_no_virtual_filesystem_active(self) -> None:
-        """Verify small tests remain blocked when no virtual filesystem is active."""
+        """Verify small tests remain blocked when no virtual filesystem is active.
+
+        PASSES ON BASE: regression guard; the base already blocks this access.
+        """
         blocker = FilesystemPatchingBlocker()
         blocker.activate(TestSize.SMALL, EnforcementMode.STRICT, frozenset())
 

@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/CI-Scope
-          ref: v0.4.0
+          ref: v0.5.1
           path: .ci-scope
       # This repo's test dependencies (pytest-bdd, pytest-benchmark, pytest-mock, ...) are uv
       # dependency groups pinned in uv.lock, which pip cannot read: kept from the previous gate.
