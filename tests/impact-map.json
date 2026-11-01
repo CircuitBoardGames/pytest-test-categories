@@ -1,7 +1,7 @@
 {
  "generated": {
-  "sha": "c93b626a512d7878c350711bdca21b97af6fc49f",
-  "time": "2026-10-25T04:35:15Z"
+  "sha": "b907c42e41e79d547df9d6f8273aa515816fcaf4",
+  "time": "2026-11-01T04:34:05Z"
  },
  "tests": {
   "tests/bdd/step_defs/test_enforcement_steps.py": [
@@ -91,13 +91,19 @@
   ],
   "tests/integration/it_process_blocking_hooks.py": [
    "./",
+   "src/",
+   "tests/integration/it_process_blocking_hooks.py",
+   "tests/plugins"
+  ],
+  "tests/integration/it_pyfakefs_compatibility.py": [
+   "./",
    "__init__.py",
    "src/",
    "tests",
    "tests/__init__.py",
    "tests/integration",
    "tests/integration/__init__.py",
-   "tests/integration/it_process_blocking_hooks.py",
+   "tests/integration/it_pyfakefs_compatibility.py",
    "tests/plugins"
   ],
   "tests/integration/it_service_integration.py": [
@@ -204,6 +210,7 @@
    "tests/test_fake_timer.py"
   ],
   "tests/test_filesystem_blocker_module.py": [
+   "source",
    "tests/test_filesystem_blocker_module.py"
   ],
   "tests/test_formatting_module.py": [
@@ -227,8 +234,6 @@
    "tests/test_json_report_module.py"
   ],
   "tests/test_marker_inheritance_conflicts_module.py": [
-   "./",
-   "src/",
    "tests/test_marker_inheritance_conflicts_module.py"
   ],
   "tests/test_network_blocker_module.py": [
@@ -246,7 +251,9 @@
    "tests/test_output_writer_port_module.py"
   ],
   "tests/test_package_level_imports.py": [
+   "pyproject.toml",
    "src/pytest_test_categories/",
+   "tests/plugins",
    "tests/test_package_level_imports.py"
   ],
   "tests/test_performance_baseline_feature.py": [
@@ -346,6 +353,12 @@
   ],
   "tests/test_types_module.py": [
    "tests/test_types_module.py"
+  ],
+  "tests/test_version_metadata_resolution.py": [
+   "pyproject.toml",
+   "pytest_test_categories-1.2.1.dist-info",
+   "site-packages",
+   "tests/test_version_metadata_resolution.py"
   ],
   "tests/test_violation_tracking_module.py": [
    "tests/test_violation_tracking_module.py"
