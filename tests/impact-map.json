@@ -1,7 +1,7 @@
 {
  "generated": {
-  "sha": "b907c42e41e79d547df9d6f8273aa515816fcaf4",
-  "time": "2026-11-01T04:34:05Z"
+  "sha": "c6abde5cda766de5e5b54ecac73ee1c49ab4a124",
+  "time": "2026-11-08T04:34:18Z"
  },
  "tests": {
   "tests/bdd/step_defs/test_enforcement_steps.py": [
@@ -234,6 +234,8 @@
    "tests/test_json_report_module.py"
   ],
   "tests/test_marker_inheritance_conflicts_module.py": [
+   "./",
+   "src/",
    "tests/test_marker_inheritance_conflicts_module.py"
   ],
   "tests/test_network_blocker_module.py": [
