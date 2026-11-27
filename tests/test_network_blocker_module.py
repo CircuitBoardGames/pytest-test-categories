@@ -13,6 +13,9 @@ This follows the same pattern as the timer module (TestTimer/FakeTimer/WallTimer
 
 from __future__ import annotations
 
+import socket
+from typing import TYPE_CHECKING
+
 import pytest
 from icontract import ViolationError
 
@@ -23,11 +26,15 @@ from pytest_test_categories.ports.network import (
     BlockerState,
     ConnectionAttempt,
     EnforcementMode,
+    is_localhost,
 )
 from pytest_test_categories.types import (
     NetworkMode,
     TestSize,
 )
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 @pytest.mark.small
@@ -396,6 +403,8 @@ class DescribeLocalhostDetection:
             '127.255.255.255',
             '::1',
             '0:0:0:0:0:0:0:1',
+            '127.1.2.3',
+            '::ffff:127.0.0.1',
         ],
     )
     def it_recognizes_localhost_variants(self, host: str) -> None:
@@ -422,6 +431,108 @@ class DescribeLocalhostDetection:
         blocker.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
 
         assert blocker.check_connection_allowed(host, 80) is False
+
+
+# DNS names that merely start with '127.' resolve wherever their owner points them (#14).
+LOOPBACK_LOOKALIKE_HOSTS = [
+    '127.evil.attacker.com',
+    '127.0.0.1.attacker.com',
+    '127.anything',
+    '127.',
+]
+
+
+@pytest.mark.small
+class DescribeLocalhostAllowlistBypass:
+    """The medium-test allowlist accepts real loopback addresses, never look-alike names."""
+
+    @pytest.mark.parametrize('host', LOOPBACK_LOOKALIKE_HOSTS)
+    def it_rejects_hostnames_that_start_with_a_loopback_prefix(self, host: str) -> None:
+        """Verify a DNS name is not mistaken for a 127.0.0.0/8 address."""
+        assert is_localhost(host) is False
+
+    @pytest.mark.parametrize('host', [b'\x7f\x00\x00\x01', 2130706433, None])
+    def it_fails_closed_on_hosts_that_are_not_strings(self, host: object) -> None:
+        """Verify packed bytes, integers and None are refused, though ipaddress would parse the first two."""
+        assert is_localhost(host) is False
+
+    @pytest.mark.parametrize('host', [' 127.0.0.1', '[::1]', '::ffff:8.8.8.8', 'localhost.attacker.com'])
+    def it_still_refuses_hosts_the_prefix_match_refused__control(self, host: str) -> None:
+        """Verify padded, bracketed, non-loopback-mapped and localhost-prefixed hosts stay refused.
+
+        PASSES ON BASE: the prefix match refused these too; they pin that parsing the address did not let them in.
+        """
+        assert is_localhost(host) is False
+
+    @pytest.mark.parametrize('host', LOOPBACK_LOOKALIKE_HOSTS)
+    def it_blocks_lookalike_hosts_for_medium_tests_in_both_adapters(self, host: str) -> None:
+        """Verify neither adapter lets a look-alike name through the MEDIUM allowlist."""
+        fake = FakeNetworkBlocker()
+        real = SocketPatchingNetworkBlocker()
+        fake.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
+        real.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
+
+        try:
+            assert fake.check_connection_allowed(host, 443) is False
+            assert real.check_connection_allowed(host, 443) is False
+        finally:
+            real.deactivate()
+
+    # These two tests swap the socket module's attributes by hand and restore them before returning.
+    # mocker/monkeypatch restore at fixture teardown, which runs after the plugin's own per-test
+    # blocker has been deactivated, so they would reinstall that blocker's patched socket for good.
+
+    @pytest.mark.parametrize('method_name', ['connect', 'connect_ex'])
+    def it_stops_a_medium_test_connecting_to_a_lookalike_host(self, method_name: str) -> None:
+        """Verify the patched socket raises before the real connect resolves the name off-box."""
+        connected: list[object] = []
+
+        class RecordingSocket:
+            """Stands in for the real socket class so nothing can leave the machine."""
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def connect(self, address: object) -> None:
+                connected.append(address)
+
+            def connect_ex(self, address: object) -> int:
+                connected.append(address)
+                return 0
+
+        socket_class = socket.socket
+        socket.socket = RecordingSocket  # type: ignore[misc,assignment]
+        blocker = SocketPatchingNetworkBlocker()
+        blocker.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            with pytest.raises(NetworkAccessViolationError) as exc_info:
+                getattr(sock, method_name)(('127.evil.attacker.com', 443))
+        finally:
+            blocker.deactivate()
+            socket.socket = socket_class  # type: ignore[misc]
+
+        assert exc_info.value.host == '127.evil.attacker.com'
+        assert connected == []
+
+    @pytest.mark.parametrize('resolver_name', ['getaddrinfo', 'gethostbyname', 'gethostbyname_ex'])
+    def it_stops_a_medium_test_resolving_a_lookalike_host(self, mocker: MockerFixture, resolver_name: str) -> None:
+        """Verify the patched resolver raises before the lookup can leak the name to its nameserver."""
+        resolver = getattr(socket, resolver_name)
+        real_resolver = mocker.Mock()
+        setattr(socket, resolver_name, real_resolver)
+        blocker = SocketPatchingNetworkBlocker()
+        blocker.activate(TestSize.MEDIUM, EnforcementMode.STRICT)
+
+        try:
+            with pytest.raises(NetworkAccessViolationError):
+                getattr(socket, resolver_name)('127.secret-token.attacker.com', 0)
+        finally:
+            blocker.deactivate()
+            setattr(socket, resolver_name, resolver)
+
+        real_resolver.assert_not_called()
 
 
 @pytest.mark.small

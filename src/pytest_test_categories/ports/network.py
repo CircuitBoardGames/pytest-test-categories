@@ -33,6 +33,7 @@ See Also:
 
 from __future__ import annotations
 
+import ipaddress
 from abc import (
     ABC,
     abstractmethod,
@@ -49,19 +50,20 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from pytest_test_categories.types import TestSize
 
-# Localhost identifiers for medium test allowlist
-LOCALHOST_HOSTS = frozenset(
-    {
-        'localhost',
-        '127.0.0.1',
-        '::1',
-        '0:0:0:0:0:0:0:1',
-    }
-)
 
-
-def is_localhost(host: str) -> bool:
+def is_localhost(host: object) -> bool:
     """Check if a host is a localhost address.
+
+    This is the medium-test network allowlist gate, so it must only accept a host that cannot
+    leave the machine. It accepts the exact name ``localhost`` (case-insensitive) or a literal
+    loopback IP address: 127.0.0.0/8, ``::1`` and IPv4-mapped ``::ffff:127.x.x.x``.
+
+    The address is parsed with :mod:`ipaddress`, never prefix-matched: a DNS name such as
+    ``127.evil.example.com`` starts with ``127.`` but resolves wherever its owner points it.
+    The host is not resolved here either, because the lookup itself is network egress. The
+    string is not stripped or unbracketed, so what is checked is exactly what the resolver gets;
+    anything unusual is refused (fail closed). Non-strings are refused because ``ipaddress``
+    accepts packed bytes and integers that a resolver would treat quite differently.
 
     Args:
         host: The hostname or IP address to check.
@@ -70,16 +72,20 @@ def is_localhost(host: str) -> bool:
         True if the host is a localhost address, False otherwise.
 
     """
-    # Case-insensitive check for 'localhost'
+    if not isinstance(host, str):
+        return False
+
     if host.lower() == 'localhost':
         return True
 
-    # Check for 127.x.x.x range
-    if host.startswith('127.'):
-        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
 
-    # Check other localhost representations
-    return host in LOCALHOST_HOSTS
+    # Python < 3.13 reports ::ffff:127.0.0.1 as not loopback, so check the embedded IPv4 address.
+    mapped = getattr(address, 'ipv4_mapped', None)
+    return (address if mapped is None else mapped).is_loopback
 
 
 class EnforcementMode(StrEnum):
