@@ -327,3 +327,81 @@ class DescribeJsonReportFileOption:
 
         result.assert_outcomes(passed=1)
         assert report_path.exists()
+
+
+@pytest.mark.medium
+class DescribeJsonReportDistributionTargets:
+    """Test suite for the distribution targets in the JSON report."""
+
+    TEST_FILE = """
+        import pytest
+
+        @pytest.mark.small
+        def test_small_one():
+            assert True
+
+        @pytest.mark.small
+        def test_small_two():
+            assert True
+
+        @pytest.mark.medium
+        def test_medium():
+            assert True
+
+        @pytest.mark.xlarge
+        def test_xlarge():
+            assert True
+        """
+
+    def it_reports_cli_configured_targets(self, pytester: pytest.Pytester) -> None:
+        """Report the targets set with the --test-categories-*-target options."""
+        pytester.makepyfile(test_example=self.TEST_FILE)
+
+        report_path = pytester.path / 'report.json'
+        result = pytester.runpytest(
+            '--test-size-report=json',
+            f'--test-size-report-file={report_path}',
+            '--test-categories-small-target=50',
+            '--test-categories-medium-target=25',
+            '--test-categories-large-target=25',
+        )
+
+        result.assert_outcomes(passed=4)
+        distribution = json.loads(report_path.read_text())['summary']['distribution']
+        assert distribution['small']['target'] == 50.0
+        assert distribution['medium']['target'] == 25.0
+        assert distribution['large_xlarge'] == {'count': 1, 'percentage': 25.0, 'target': 25.0}
+
+    def it_reports_ini_configured_targets(self, pytester: pytest.Pytester) -> None:
+        """Report the targets set with the test_categories_*_target ini options."""
+        pytester.makepyfile(test_example=self.TEST_FILE)
+        pytester.makeini(
+            """
+            [pytest]
+            test_categories_small_target = 60
+            test_categories_medium_target = 30
+            test_categories_large_target = 10
+            """
+        )
+
+        report_path = pytester.path / 'report.json'
+        result = pytester.runpytest('--test-size-report=json', f'--test-size-report-file={report_path}')
+
+        result.assert_outcomes(passed=4)
+        distribution = json.loads(report_path.read_text())['summary']['distribution']
+        assert distribution['small']['target'] == 60.0
+        assert distribution['medium']['target'] == 30.0
+        assert distribution['large_xlarge']['target'] == 10.0
+
+    def it_reports_no_fabricated_large_and_xlarge_targets(self, pytester: pytest.Pytester) -> None:
+        """Report null per-size targets for large and xlarge, which share one combined target."""
+        pytester.makepyfile(test_example=self.TEST_FILE)
+
+        report_path = pytester.path / 'report.json'
+        result = pytester.runpytest('--test-size-report=json', f'--test-size-report-file={report_path}')
+
+        result.assert_outcomes(passed=4)
+        distribution = json.loads(report_path.read_text())['summary']['distribution']
+        assert distribution['large']['target'] is None
+        assert distribution['xlarge']['target'] is None
+        assert distribution['large_xlarge']['target'] == 5.0

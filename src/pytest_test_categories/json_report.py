@@ -26,11 +26,12 @@ from pydantic import (
     computed_field,
 )
 
-from pytest_test_categories.distribution.stats import DISTRIBUTION_TARGETS
+from pytest_test_categories.distribution.config import DEFAULT_DISTRIBUTION_CONFIG
 from pytest_test_categories.types import TestSize
 from pytest_test_categories.violation_tracking import ViolationType
 
 if TYPE_CHECKING:
+    from pytest_test_categories.distribution.config import DistributionConfig
     from pytest_test_categories.distribution.stats import DistributionStats
     from pytest_test_categories.reporting import TestSizeReport
     from pytest_test_categories.violation_tracking import ViolationTracker
@@ -40,14 +41,16 @@ class DistributionSizeEntry(BaseModel):
     """Distribution statistics for a single test size category.
 
     Represents the count, percentage, and target for a test size category
-    in the JSON report output.
+    in the JSON report output. The target is None for a category that has
+    no target of its own: large and xlarge share the combined large_xlarge
+    target.
     """
 
     model_config = ConfigDict(frozen=True)
 
     count: int = Field(ge=0)
     percentage: float = Field(ge=0.0, le=100.0)
-    target: float = Field(ge=0.0, le=100.0)
+    target: float | None = Field(ge=0.0, le=100.0)
 
 
 class HermeticityViolationsSummary(BaseModel):
@@ -116,31 +119,40 @@ class JsonTestEntry(BaseModel):
     violations: list[str]
 
 
-def _build_distribution(distribution_stats: DistributionStats) -> dict[str, DistributionSizeEntry]:
-    """Build the distribution dictionary from stats."""
+def _build_distribution(
+    distribution_stats: DistributionStats,
+    distribution_config: DistributionConfig,
+) -> dict[str, DistributionSizeEntry]:
+    """Build the distribution dictionary from stats and the configured targets.
+
+    The targets come from the same DistributionConfig that distribution
+    validation enforces. That config has one combined target for large and
+    xlarge tests, so it is reported on the large_xlarge entry, and the
+    separate large and xlarge entries carry no target.
+    """
     counts = distribution_stats.counts
     percentages = distribution_stats.calculate_percentages()
+    total = counts.small + counts.medium + counts.large + counts.xlarge
+    large_xlarge_count = counts.large + counts.xlarge
+    large_xlarge_percentage = round(large_xlarge_count * 100.0 / total, 2) if total else 0.0
 
     return {
         'small': DistributionSizeEntry(
             count=counts.small,
             percentage=percentages.small,
-            target=DISTRIBUTION_TARGETS['small'].target,
+            target=distribution_config.get_small_range().target,
         ),
         'medium': DistributionSizeEntry(
             count=counts.medium,
             percentage=percentages.medium,
-            target=DISTRIBUTION_TARGETS['medium'].target,
+            target=distribution_config.get_medium_range().target,
         ),
-        'large': DistributionSizeEntry(
-            count=counts.large,
-            percentage=percentages.large,
-            target=DISTRIBUTION_TARGETS['large_xlarge'].target * 0.8,
-        ),
-        'xlarge': DistributionSizeEntry(
-            count=counts.xlarge,
-            percentage=percentages.xlarge,
-            target=DISTRIBUTION_TARGETS['large_xlarge'].target * 0.2,
+        'large': DistributionSizeEntry(count=counts.large, percentage=percentages.large, target=None),
+        'xlarge': DistributionSizeEntry(count=counts.xlarge, percentage=percentages.xlarge, target=None),
+        'large_xlarge': DistributionSizeEntry(
+            count=large_xlarge_count,
+            percentage=large_xlarge_percentage,
+            target=distribution_config.get_large_xlarge_range().target,
         ),
     }
 
@@ -194,6 +206,7 @@ class JsonReport(BaseModel):
         distribution_stats: DistributionStats,
         version: str,
         violation_tracker: ViolationTracker | None = None,
+        distribution_config: DistributionConfig | None = None,
     ) -> JsonReport:
         """Create a JsonReport from a TestSizeReport and DistributionStats.
 
@@ -202,13 +215,16 @@ class JsonReport(BaseModel):
             distribution_stats: The DistributionStats with count data.
             version: The plugin version string.
             violation_tracker: Optional ViolationTracker with hermeticity violations.
+            distribution_config: The session's DistributionConfig, whose targets the
+                report carries. If not provided, uses DEFAULT_DISTRIBUTION_CONFIG.
 
         Returns:
             A JsonReport instance ready for serialization.
 
         """
         timestamp = datetime.now(tz=UTC)
-        distribution = _build_distribution(distribution_stats)
+        effective_config = DEFAULT_DISTRIBUTION_CONFIG if distribution_config is None else distribution_config
+        distribution = _build_distribution(distribution_stats, effective_config)
         test_hermeticity_violations = _build_hermeticity_lookup(violation_tracker)
 
         timing_violations = 0

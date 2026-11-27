@@ -253,3 +253,41 @@ class DescribeDistributionConfigInPluginState:
         config = state.distribution_config
         assert isinstance(config, DistributionConfig)
         assert config.small_target == 70.0
+
+
+@pytest.mark.medium
+class DescribeConfiguredTargetsInPytestRun:
+    """Test that configured targets reach distribution validation in a real pytest run."""
+
+    def it_validates_against_cli_configured_targets(self, pytester: pytest.Pytester) -> None:
+        """Strict enforcement accepts a suite that matches the CLI-configured targets."""
+        pytester.makepyfile(
+            test_example="""
+            import pytest
+
+            @pytest.mark.small
+            def test_small_one():
+                assert True
+
+            @pytest.mark.small
+            def test_small_two():
+                assert True
+
+            @pytest.mark.medium
+            def test_medium():
+                assert True
+
+            @pytest.mark.xlarge
+            def test_xlarge():
+                assert True
+            """
+        )
+
+        result = pytester.runpytest(
+            '--test-categories-distribution-enforcement=strict',
+            '--test-categories-small-target=50',
+            '--test-categories-medium-target=25',
+            '--test-categories-large-target=25',
+        )
+
+        result.assert_outcomes(passed=4)

@@ -420,8 +420,9 @@ pytest --test-size-report=json --test-size-report-file=report.json
     "distribution": {
       "small": {"count": 120, "percentage": 80.0, "target": 80.0},
       "medium": {"count": 22, "percentage": 14.67, "target": 15.0},
-      "large": {"count": 6, "percentage": 4.0, "target": 4.0},
-      "xlarge": {"count": 2, "percentage": 1.33, "target": 1.0}
+      "large": {"count": 6, "percentage": 4.0, "target": null},
+      "xlarge": {"count": 2, "percentage": 1.33, "target": null},
+      "large_xlarge": {"count": 8, "percentage": 5.33, "target": 5.0}
     },
     "violations": {
       "timing": 0,

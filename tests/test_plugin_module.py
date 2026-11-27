@@ -250,7 +250,8 @@ class DescribePytestConfigure:
     def it_registers_markers_and_initializes_report(self) -> None:
         """Test that pytest_configure registers markers and initializes report."""
         config = Mock()
-        config.getoption.return_value = 'basic'
+        config.getoption.side_effect = lambda name, default=None: 'basic' if name == '--test-size-report' else default
+        config.getini.return_value = ''
         config.distribution_stats = None
 
         pytest_configure(config)
@@ -265,6 +266,7 @@ class DescribePytestConfigure:
         """Test that pytest_configure doesn't initialize report when not requested."""
         config = Mock()
         config.getoption.return_value = None
+        config.getini.return_value = ''
         config.distribution_stats = None
 
         pytest_configure(config)
@@ -272,6 +274,26 @@ class DescribePytestConfigure:
         # Should not initialize report
         assert hasattr(config, '_test_categories_state')
         assert config._test_categories_state.test_size_report is None
+
+    def it_resolves_distribution_config_from_options(self) -> None:
+        """Test that pytest_configure replaces the default distribution config with the configured one."""
+        cli_targets = {
+            '--test-categories-small-target': '70',
+            '--test-categories-medium-target': '20',
+            '--test-categories-large-target': '10',
+        }
+        config = Mock()
+        config.getoption.side_effect = lambda name, default=None: cli_targets.get(name, default)
+        config.getini.return_value = ''
+        config.distribution_stats = None
+        config._test_categories_state = PluginState()
+
+        pytest_configure(config)
+
+        distribution_config = config._test_categories_state.distribution_config
+        assert distribution_config.small_target == 70.0
+        assert distribution_config.medium_target == 20.0
+        assert distribution_config.large_target == 10.0
 
 
 @pytest.mark.small

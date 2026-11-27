@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from pytest_test_categories.distribution.config import DistributionConfig
 from pytest_test_categories.distribution.stats import DistributionStats
 from pytest_test_categories.json_report import (
     DistributionSizeEntry,
@@ -49,6 +50,12 @@ class DescribeDistributionSizeEntry:
 
         with pytest.raises(ValueError, match='greater than or equal to 0'):
             DistributionSizeEntry(count=80, percentage=-1.0, target=80.0)
+
+    def it_accepts_a_null_target(self) -> None:
+        """Accept a null target for a size with no target of its own."""
+        entry = DistributionSizeEntry(count=4, percentage=4.0, target=None)
+
+        assert entry.target is None
 
     def it_serializes_to_dict(self) -> None:
         """Serialize entry to dictionary format."""
@@ -732,3 +739,87 @@ class DescribeJsonReportWithBaselineViolations:
 
         assert json_report.summary.violations.baseline == 0
         assert json_report.tests[0].violations == []
+
+
+@pytest.mark.small
+class DescribeJsonReportDistributionTargets:
+    """Test suite for the distribution targets reported in the JSON summary."""
+
+    def it_reports_targets_from_the_configured_distribution(self) -> None:
+        """Report the targets of the DistributionConfig the session validates against."""
+        test_report = TestSizeReport()
+        stats = DistributionStats.update_counts({TestSize.SMALL: 7, TestSize.MEDIUM: 2, TestSize.LARGE: 1})
+        custom_config = DistributionConfig(small_target=70.0, medium_target=20.0, large_target=10.0)
+
+        json_report = JsonReport.from_test_size_report(
+            test_report=test_report,
+            distribution_stats=stats,
+            version='0.7.0',
+            distribution_config=custom_config,
+        )
+
+        distribution = json_report.summary.distribution
+        assert distribution['small'].target == 70.0
+        assert distribution['medium'].target == 20.0
+        assert distribution['large_xlarge'].target == 10.0
+
+    def it_reports_default_targets_without_a_configured_distribution(self) -> None:
+        """Fall back to the default distribution targets when no config is given."""
+        test_report = TestSizeReport()
+        stats = DistributionStats.update_counts({TestSize.SMALL: 1})
+
+        json_report = JsonReport.from_test_size_report(
+            test_report=test_report,
+            distribution_stats=stats,
+            version='0.7.0',
+        )
+
+        distribution = json_report.summary.distribution
+        assert distribution['small'].target == 80.0
+        assert distribution['medium'].target == 15.0
+        assert distribution['large_xlarge'].target == 5.0
+
+    def it_reports_no_separate_large_and_xlarge_targets(self) -> None:
+        """Report null targets for large and xlarge, which have only a combined target."""
+        test_report = TestSizeReport()
+        stats = DistributionStats.update_counts({TestSize.SMALL: 1})
+
+        json_report = JsonReport.from_test_size_report(
+            test_report=test_report,
+            distribution_stats=stats,
+            version='0.7.0',
+            distribution_config=DistributionConfig(small_target=70.0, medium_target=20.0, large_target=10.0),
+        )
+
+        distribution = json_report.summary.distribution
+        assert distribution['large'].target is None
+        assert distribution['xlarge'].target is None
+
+    def it_combines_large_and_xlarge_counts_and_percentages(self) -> None:
+        """Report the combined large/xlarge count and percentage the combined target applies to."""
+        test_report = TestSizeReport()
+        stats = DistributionStats.update_counts(
+            {TestSize.SMALL: 1, TestSize.MEDIUM: 0, TestSize.LARGE: 1, TestSize.XLARGE: 1}
+        )
+
+        json_report = JsonReport.from_test_size_report(
+            test_report=test_report,
+            distribution_stats=stats,
+            version='0.7.0',
+        )
+
+        combined = json_report.summary.distribution['large_xlarge']
+        assert combined.count == 2
+        assert combined.percentage == 66.67
+
+    def it_reports_zero_combined_percentage_for_an_empty_suite(self) -> None:
+        """Report a 0% combined large/xlarge percentage when no sized tests exist."""
+        json_report = JsonReport.from_test_size_report(
+            test_report=TestSizeReport(),
+            distribution_stats=DistributionStats.update_counts({}),
+            version='0.7.0',
+        )
+
+        combined = json_report.summary.distribution['large_xlarge']
+        assert combined.count == 0
+        assert combined.percentage == 0.0

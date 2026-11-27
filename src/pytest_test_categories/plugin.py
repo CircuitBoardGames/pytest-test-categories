@@ -264,9 +264,10 @@ def pytest_configure(config: pytest.Config) -> None:
     if not hasattr(config, 'distribution_stats'):
         config.distribution_stats = session_state.distribution_stats  # type: ignore[attr-defined]
 
-    # Initialize distribution configuration from CLI and ini options
-    if session_state.distribution_config is None:
-        session_state.distribution_config = _get_distribution_config(config)
+    # Resolve distribution configuration from CLI and ini options. PluginState
+    # always starts with DEFAULT_DISTRIBUTION_CONFIG, so this must not be
+    # guarded by an "is None" check or the configured targets never apply.
+    session_state.distribution_config = _get_distribution_config(config)
 
     # Register size markers
     for size in TestSize:
@@ -1157,19 +1158,24 @@ def _write_json_report(
 ) -> None:
     """Write JSON report to file or stdout.
 
+    The report's distribution targets come from the session's distribution
+    config, the same one distribution validation enforces.
+
     Args:
         test_report: The test size report containing test data.
         stats: The distribution statistics.
-        config_adapter: The config adapter for accessing options.
+        config_adapter: The config adapter for accessing options and plugin state.
         terminalreporter: The terminal reporter for output.
         violation_tracker: Optional violation tracker with hermeticity violations.
 
     """
+    distribution_config = cast('DistributionConfig | None', config_adapter.get_plugin_state().distribution_config)
     json_report = JsonReport.from_test_size_report(
         test_report=test_report,
         distribution_stats=stats,
         version=PLUGIN_VERSION,
         violation_tracker=violation_tracker,
+        distribution_config=distribution_config,
     )
 
     json_output = json_report.model_dump_json(indent=2)
