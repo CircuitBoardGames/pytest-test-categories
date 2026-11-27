@@ -45,6 +45,39 @@ from pytest_test_categories.types import TestSize
 _RESOLVER_NAMES = ('getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'getnameinfo')
 
 
+def _resolver_host(resolver_name: str, first_arg: object) -> str:
+    """Return the host a resolver call is about, as the string is_localhost() checks.
+
+    The resolvers do not share a first argument, so its raw str() is not the host:
+
+    - getnameinfo(sockaddr, flags) takes an address tuple; the host is its first element.
+      CPython resolves that element with AI_NUMERICHOST, so it is always an address.
+    - getaddrinfo(None, port) names no host at all. It returns the loopback addresses (or the
+      wildcard ones, with AI_PASSIVE) without any lookup, so it is resolution of localhost.
+    - Every resolver accepts a bytes host, whose str() would be "b'localhost'".
+
+    Args:
+        resolver_name: The socket module resolver being called.
+        first_arg: The first argument the caller passed to it.
+
+    Returns:
+        The host the call resolves. An argument that is none of the above is stringified, which
+        no localhost check accepts, so the call is treated as reaching an external host.
+
+    """
+    host = first_arg
+    if resolver_name == 'getnameinfo' and isinstance(first_arg, tuple) and first_arg:
+        host = first_arg[0]
+
+    if host is None:
+        return 'localhost'
+
+    if isinstance(host, (bytes, bytearray)):
+        return bytes(host).decode('ascii', errors='replace')
+
+    return str(host)
+
+
 class SocketPatchingNetworkBlocker(NetworkBlockerPort):
     """Production adapter that patches socket.socket to block network access.
 
@@ -150,8 +183,9 @@ class SocketPatchingNetworkBlocker(NetworkBlockerPort):
             original = object.__getattribute__(blocker, '_original_resolvers')[name]
             # Port 0: a resolution is not a connection, so there is no port to report. The check
             # only distinguishes localhost from everything else, which is a property of the host.
-            if not blocker._do_check_connection_allowed(str(host), 0):  # noqa: SLF001
-                blocker._do_on_violation(str(host), 0, blocker.current_test_nodeid)  # noqa: SLF001
+            target_host = _resolver_host(name, host)
+            if not blocker._do_check_connection_allowed(target_host, 0):  # noqa: SLF001
+                blocker._do_on_violation(target_host, 0, blocker.current_test_nodeid)  # noqa: SLF001
 
             return original(host, *args, **kwargs)
 

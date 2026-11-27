@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix the medium-test network allowlist accepting any host whose name starts with `127.` (e.g. `127.evil.attacker.com`). Under `--test-categories-enforcement=warn|strict` such a name passed the localhost check on `socket.connect`/`connect_ex` and on the patched DNS resolvers, so a medium test could resolve and connect off-box. `is_localhost()` now parses the host with `ipaddress` and accepts only `localhost` or a literal loopback address (127.0.0.0/8, `::1`, `::ffff:127.x.x.x`); the unused `LOCALHOST_HOSTS` constant is removed. Spellings that only the old prefix match accepted, such as `127.1` and `127.0.0.01`, are refused too
+- Fix false `NetworkAccessViolationError` (`[TC001]`) for medium tests making local name-resolution calls. The resolver wrappers stringified their first argument as the host, so `socket.getnameinfo(('127.0.0.1', 80), flags)` was checked as the host `"('127.0.0.1', 80)"`, `socket.getaddrinfo(None, port)` as `"None"`, and a bytes host such as `b'localhost'` as `"b'localhost'"`, none of which counted as localhost. The host is now taken from the sockaddr for `getnameinfo`, a `None` host is treated as localhost, and bytes hosts are decoded. Small tests still may not call any resolver
 
 ## v1.2.2 (2026-09-13)
 

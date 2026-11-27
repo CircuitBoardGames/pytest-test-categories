@@ -14,6 +14,7 @@ This follows the same pattern as the timer module (TestTimer/FakeTimer/WallTimer
 from __future__ import annotations
 
 import socket
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,6 +35,8 @@ from pytest_test_categories.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from pytest_mock import MockerFixture
 
 
@@ -386,6 +389,112 @@ class DescribeSocketPatchingNetworkBlocker:
         blocker.reset()
 
         assert socket.socket is original_socket
+
+
+@contextmanager
+def _blocker_over_stub(resolver_name: str, stub: object, test_size: TestSize) -> Iterator[None]:
+    """Activate a production blocker over a stubbed resolver, undoing both before returning.
+
+    The stub goes in BEFORE activation, so the blocker wraps it and no lookup leaves the process.
+    Both are undone here, in the test body, and not at fixture teardown: the plugin's own blocker
+    for this test deactivates when the call phase ends, and undoing anything after that would
+    reinstall its wrappers on the socket module for every later test.
+    """
+    real_resolver = getattr(socket, resolver_name)
+    setattr(socket, resolver_name, stub)
+    try:
+        blocker = SocketPatchingNetworkBlocker()
+        blocker.activate(test_size, EnforcementMode.STRICT)
+        try:
+            yield
+        finally:
+            blocker.deactivate()
+    finally:
+        setattr(socket, resolver_name, real_resolver)
+
+
+@pytest.mark.small
+class DescribeSocketPatchingNetworkBlockerResolvers:
+    """Tests for the name-resolution wrappers the production blocker installs."""
+
+    @pytest.mark.parametrize(
+        'sockaddr',
+        [
+            ('127.0.0.1', 80),
+            ('::1', 80, 0, 0),
+        ],
+    )
+    def it_allows_getnameinfo_on_a_loopback_sockaddr_for_medium_tests(
+        self,
+        mocker: MockerFixture,
+        sockaddr: tuple[str, int] | tuple[str, int, int, int],
+    ) -> None:
+        """Verify getnameinfo checks the host inside the sockaddr, not the stringified tuple."""
+        real_getnameinfo = mocker.MagicMock(return_value=('localhost', 'http'))
+
+        with _blocker_over_stub('getnameinfo', real_getnameinfo, TestSize.MEDIUM):
+            assert socket.getnameinfo(sockaddr, 0) == ('localhost', 'http')
+
+        real_getnameinfo.assert_called_once_with(sockaddr, 0)
+
+    def it_blocks_getnameinfo_on_an_external_sockaddr_for_medium_tests(self, mocker: MockerFixture) -> None:
+        """Verify getnameinfo on a non-loopback address is a violation naming that address."""
+        real_getnameinfo = mocker.MagicMock()
+
+        with (
+            _blocker_over_stub('getnameinfo', real_getnameinfo, TestSize.MEDIUM),
+            pytest.raises(NetworkAccessViolationError) as exc_info,
+        ):
+            socket.getnameinfo(('93.184.216.34', 80), 0)
+
+        assert exc_info.value.host == '93.184.216.34'
+        real_getnameinfo.assert_not_called()
+
+    def it_allows_getaddrinfo_with_no_host_for_medium_tests(self, mocker: MockerFixture) -> None:
+        """Verify getaddrinfo(None, port), which resolves only local addresses, is not a violation."""
+        real_getaddrinfo = mocker.MagicMock(return_value=[])
+
+        with _blocker_over_stub('getaddrinfo', real_getaddrinfo, TestSize.MEDIUM):
+            assert socket.getaddrinfo(None, 80, flags=socket.AI_PASSIVE) == []
+
+        real_getaddrinfo.assert_called_once_with(None, 80, flags=socket.AI_PASSIVE)
+
+    @pytest.mark.parametrize('resolver_name', ['getaddrinfo', 'gethostbyname', 'gethostbyname_ex'])
+    def it_allows_a_bytes_localhost_for_medium_tests(self, mocker: MockerFixture, resolver_name: str) -> None:
+        """Verify a bytes host is decoded before the localhost check, not stringified to "b'...'"."""
+        real_resolver = mocker.MagicMock()
+
+        with _blocker_over_stub(resolver_name, real_resolver, TestSize.MEDIUM):
+            getattr(socket, resolver_name)(b'localhost')
+
+        real_resolver.assert_called_once_with(b'localhost')
+
+    @pytest.mark.parametrize(
+        ('resolver_name', 'first_arg'),
+        [
+            ('getaddrinfo', None),
+            ('getnameinfo', ('127.0.0.1', 80)),
+        ],
+    )
+    def it_still_blocks_local_resolution_for_small_tests__control(
+        self,
+        mocker: MockerFixture,
+        resolver_name: str,
+        first_arg: object,
+    ) -> None:
+        """Verify small tests, which may not touch even localhost, still cannot call a resolver.
+
+        PASSES ON BASE: small tests were blocked before too; this pins that reading the real host did not unblock them.
+        """
+        real_resolver = mocker.MagicMock()
+
+        with (
+            _blocker_over_stub(resolver_name, real_resolver, TestSize.SMALL),
+            pytest.raises(NetworkAccessViolationError),
+        ):
+            getattr(socket, resolver_name)(first_arg, 0)
+
+        real_resolver.assert_not_called()
 
 
 @pytest.mark.small
