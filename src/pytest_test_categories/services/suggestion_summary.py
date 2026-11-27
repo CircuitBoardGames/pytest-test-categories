@@ -96,13 +96,17 @@ class SuggestionSummaryService:
         suggestions: list[TestSuggestion],
         writer: OutputWriterPort,
     ) -> None:
-        """Write suggestions grouped by category and transition type."""
+        """Write suggestions grouped by category and transition type.
+
+        Tests within each group are listed in node ID order, whatever order the caller passed,
+        so the terminal output is stable from run to run.
+        """
         # Group suggestions by (current_size, suggested_size) for accurate headers
         upgrade_groups: dict[tuple[TestSize, TestSize], list[TestSuggestion]] = {}
         downgrade_groups: dict[tuple[TestSize, TestSize], list[TestSuggestion]] = {}
         uncategorized: list[TestSuggestion] = []
 
-        for suggestion in suggestions:
+        for suggestion in sorted(suggestions, key=lambda s: s.test_nodeid):
             if suggestion.current_size is None:
                 uncategorized.append(suggestion)
             elif self._is_upgrade(suggestion):

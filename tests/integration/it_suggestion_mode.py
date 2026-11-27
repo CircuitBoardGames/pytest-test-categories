@@ -8,6 +8,8 @@ All tests use @pytest.mark.medium since they involve real pytest infrastructure.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 
@@ -87,6 +89,23 @@ class DescribeSuggestionMode:
         assert json_path.exists()
         content = json_path.read_text()
         assert 'test_uncategorized' in content
+
+    def it_writes_json_suggestions_in_node_id_order(self, pytester: pytest.Pytester) -> None:
+        """Verify the JSON suggestions array is ordered by node ID, so reruns produce identical files."""
+        pytester.makepyfile(
+            test_example='\n'.join(f'def test_{i:02d}():\n    assert True\n' for i in reversed(range(12)))
+        )
+
+        result = pytester.runpytest(
+            '--test-categories-suggest',
+            '--test-categories-suggest-output=suggestions.json',
+        )
+
+        result.assert_outcomes(passed=12)
+        data = json.loads((pytester.path / 'suggestions.json').read_text())
+        nodeids = [s['test_nodeid'] for s in data['suggestions']]
+        assert len(nodeids) == 12
+        assert nodeids == sorted(nodeids)
 
     def it_runs_tests_in_observation_mode_without_blocking(self, pytester: pytest.Pytester) -> None:
         """Verify suggestion mode does not block resources (observation only).

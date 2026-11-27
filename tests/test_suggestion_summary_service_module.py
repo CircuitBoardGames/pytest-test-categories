@@ -358,3 +358,37 @@ class DescribeSuggestionSummaryFromSuggestionList:
 
         output = writer.get_output()
         assert output == []
+
+    def it_lists_tests_within_each_group_in_node_id_order(self) -> None:
+        """Tests inside each group are listed by node ID, whatever order they were passed in."""
+        service = SuggestionSummaryService()
+        writer = StringBufferWriter()
+
+        suggestions = [
+            TestSuggestion(
+                test_nodeid=f'test_{name}.py::test_fn',
+                current_size=current,
+                suggested_size=suggested,
+                reason='reason',
+            )
+            for name, current, suggested in [
+                ('z_up', TestSize.SMALL, TestSize.MEDIUM),
+                ('z_down', TestSize.MEDIUM, TestSize.SMALL),
+                ('z_new', None, TestSize.SMALL),
+                ('a_up', TestSize.SMALL, TestSize.MEDIUM),
+                ('a_down', TestSize.MEDIUM, TestSize.SMALL),
+                ('a_new', None, TestSize.SMALL),
+            ]
+        ]
+
+        service.write_suggestions(suggestions, writer)
+
+        listed = [line.split()[0] for line in writer.get_output() if line.startswith('  ')]
+        assert listed == [
+            'test_a_up.py::test_fn',
+            'test_z_up.py::test_fn',
+            'test_a_down.py::test_fn',
+            'test_z_down.py::test_fn',
+            'test_a_new.py::test_fn',
+            'test_z_new.py::test_fn',
+        ]

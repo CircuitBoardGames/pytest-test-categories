@@ -454,3 +454,22 @@ class DescribeSuggestionCollectorGenerateSuggestions:
         assert 'test1.py::test_a' in nodeids
         assert 'test2.py::test_b' in nodeids
         assert 'test3.py::test_c' not in nodeids
+
+    def it_returns_suggestions_in_node_id_order(self) -> None:
+        """Suggestions come back sorted by node ID, not in set-iteration (hash) order.
+
+        Node IDs are recorded in reverse order and spread across all three stores, so neither
+        insertion order nor string-hash order happens to match the sorted order.
+        """
+        collector = SuggestionCollector()
+        nodeids = [f'test_mod.py::test_{i:02d}' for i in range(20)]
+        for nodeid in reversed(nodeids[:7]):
+            collector.record_current_size(nodeid, None)
+        for nodeid in reversed(nodeids[7:14]):
+            collector.record_observation(nodeid, ResourceType.NETWORK, 'Connection')
+        for nodeid in reversed(nodeids[14:]):
+            collector.record_execution_time(nodeid, 0.05)
+
+        suggestions = collector.generate_suggestions()
+
+        assert [s.test_nodeid for s in suggestions] == nodeids

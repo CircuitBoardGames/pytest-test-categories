@@ -307,13 +307,18 @@ class SuggestionCollector:
         - External resources OR >1s -> MEDIUM
         - Multiple resource types OR >5min -> LARGE
 
+        Tests are visited in sorted node ID order so the result is reproducible: the set of
+        node IDs iterates in an order that depends on per-process string hashing
+        (PYTHONHASHSEED), and under xdist the order workers report in varies too.
+
         Returns:
-            List of TestSuggestion instances for tests needing categorization changes.
+            List of TestSuggestion instances for tests needing categorization changes,
+            ordered by test node ID.
 
         """
         suggestions: list[TestSuggestion] = []
 
-        for test_nodeid in self.get_all_test_nodeids():
+        for test_nodeid in sorted(self.get_all_test_nodeids()):
             suggested = self._suggest_size_for_test(test_nodeid)
             if suggested is not None:
                 suggestions.append(suggested)
