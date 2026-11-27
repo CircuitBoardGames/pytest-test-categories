@@ -437,3 +437,95 @@ class DescribeSuggestionAggregation:
         merge_suggestion_data(controller, {})
 
         assert controller.observation_count == 0
+
+
+@pytest.mark.small
+class DescribeSuggestionAggregationWithMalformedPayloads:
+    """A malformed worker payload is skipped piece by piece, never raised into pytest_testnodedown.
+
+    merge_report_data has always validated worker data this way. merge_suggestion_data did not, so a
+    corrupt or version-skewed payload raised AttributeError, KeyError, TypeError or ValueError inside
+    the controller's hook and lost the aggregation for the whole run.
+    """
+
+    @pytest.mark.parametrize(
+        'payload',
+        [
+            pytest.param(['not', 'a', 'dict'], id='payload-not-a-dict'),
+            pytest.param({'observations': ['not', 'a', 'dict']}, id='observations-not-a-dict'),
+            pytest.param({'observations': {'t.py::t': 'not a list'}}, id='observation-list-not-a-list'),
+            pytest.param({'observations': {'t.py::t': ['not a dict']}}, id='observation-not-a-dict'),
+            pytest.param({'observations': {'t.py::t': [{'details': 'd'}]}}, id='resource-type-missing'),
+            pytest.param({'observations': {'t.py::t': [{'resource_type': 'network'}]}}, id='details-missing'),
+            pytest.param(
+                {'observations': {'t.py::t': [{'resource_type': 'teleport', 'details': 'd'}]}},
+                id='resource-type-unknown',
+            ),
+            pytest.param(
+                {'observations': {'t.py::t': [{'resource_type': ['network'], 'details': 'd'}]}},
+                id='resource-type-not-a-string',
+            ),
+            pytest.param(
+                {'observations': {'t.py::t': [{'resource_type': 'network', 'details': 3}]}},
+                id='details-not-a-string',
+            ),
+            pytest.param(
+                {'observations': {7: [{'resource_type': 'network', 'details': 'd'}]}},
+                id='nodeid-not-a-string',
+            ),
+            pytest.param({'execution_times': ['not', 'a', 'dict']}, id='execution-times-not-a-dict'),
+            pytest.param({'execution_times': {'t.py::t': 'slow'}}, id='duration-not-numeric'),
+            pytest.param({'execution_times': {7: 1.0}}, id='duration-nodeid-not-a-string'),
+        ],
+    )
+    def it_ignores_a_malformed_payload(self, payload: object) -> None:
+        """Nothing malformed reaches the controller's collector, and nothing raises."""
+        controller = SuggestionCollector()
+
+        merge_suggestion_data(controller, payload)
+
+        assert controller.get_all_test_nodeids() == set()
+
+    def it_keeps_the_valid_entries_next_to_malformed_ones(self) -> None:
+        """One bad entry costs only that entry, as with merge_report_data."""
+        controller = SuggestionCollector()
+        payload: dict[str, object] = {
+            'observations': {
+                'test_a.py::test_one': [
+                    {'resource_type': 'teleport', 'details': 'unknown type'},
+                    'not a dict',
+                    {'resource_type': 'network', 'details': 'connect example.com:443'},
+                ],
+                'test_b.py::test_two': 'not a list',
+            },
+            'execution_times': {'test_a.py::test_one': 2.5, 'test_b.py::test_two': 'slow'},
+        }
+
+        merge_suggestion_data(controller, payload)
+
+        assert [(o.resource_type, o.details) for o in controller.get_observations('test_a.py::test_one')] == [
+            (ResourceType.NETWORK, 'connect example.com:443'),
+        ]
+        assert controller.get_execution_time('test_a.py::test_one') == 2.5
+        assert controller.get_all_test_nodeids() == {'test_a.py::test_one'}
+
+    def it_generates_suggestions_after_a_non_numeric_duration(self) -> None:
+        """A non-numeric duration used to be stored and then crash suggestion generation later."""
+        controller = SuggestionCollector()
+
+        merge_suggestion_data(controller, {'execution_times': {'test_a.py::test_one': 'slow'}})
+
+        assert controller.generate_suggestions() == []
+
+
+@pytest.mark.small
+class DescribeReportAggregationWithMalformedPayload:
+    """merge_report_data tolerates a top-level payload that is not a dict, like its parts."""
+
+    def it_ignores_a_payload_that_is_not_a_dict(self) -> None:
+        """A list payload leaves the report untouched instead of raising AttributeError."""
+        target = TestSizeReport()
+
+        merge_report_data(target, ['not', 'a', 'dict'])
+
+        assert target.get_total_tests() == 0

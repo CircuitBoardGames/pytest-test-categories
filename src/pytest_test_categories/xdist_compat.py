@@ -18,7 +18,7 @@ Hooks used:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from pytest_test_categories.suggestion import ResourceType, SuggestionCollector
 from pytest_test_categories.types import TestSize
@@ -182,17 +182,20 @@ def _merge_outcomes(target: TestSizeReport, outcomes: object) -> None:
 
 def merge_report_data(
     target: TestSizeReport,
-    worker_data: dict[str, object],
+    worker_data: object,
 ) -> None:
     """Merge worker report data into target report.
 
     This modifies the target report in place, adding all tests from the worker.
+    Worker data crosses a process boundary, so malformed parts are skipped, not raised.
 
     Args:
         target: The target report to merge into.
         worker_data: Serialized report data from a worker.
 
     """
+    if not isinstance(worker_data, dict):
+        return
     _merge_sized_tests(target, worker_data.get('sized_tests', {}))
     _merge_unsized_tests(target, worker_data.get('unsized_tests', []))
     _merge_durations(target, worker_data.get('test_durations', {}))
@@ -223,22 +226,51 @@ def serialize_suggestion_data(collector: SuggestionCollector) -> dict[str, objec
     }
 
 
-def merge_suggestion_data(collector: SuggestionCollector, data: dict[str, object]) -> None:
+def _merge_observations(collector: SuggestionCollector, observations: object) -> None:
+    """Merge resource observations from worker data, skipping any malformed entry."""
+    if not isinstance(observations, dict):
+        return
+    for nodeid, obs in observations.items():
+        if not isinstance(nodeid, str) or not isinstance(obs, list):
+            continue
+        for o in obs:
+            if not isinstance(o, dict):
+                continue
+            resource_type_str, details = o.get('resource_type'), o.get('details')
+            if not isinstance(resource_type_str, str) or not isinstance(details, str):
+                continue
+            try:
+                resource_type = ResourceType(resource_type_str)
+            except ValueError:
+                continue
+            collector.record_observation(nodeid, resource_type, details)
+
+
+def _merge_execution_times(collector: SuggestionCollector, execution_times: object) -> None:
+    """Merge execution times from worker data, skipping any non-numeric duration."""
+    if not isinstance(execution_times, dict):
+        return
+    for nodeid, duration in execution_times.items():
+        if isinstance(nodeid, str) and isinstance(duration, (int, float)):
+            collector.record_execution_time(nodeid, duration)
+
+
+def merge_suggestion_data(collector: SuggestionCollector, data: object) -> None:
     """Merge one worker's serialized observations into the controller's collector.
 
     Additive by node ID. xdist assigns each test to exactly one worker, so no node ID appears in
     two workers' payloads and there is nothing to reconcile.
+
+    The payload crosses a process boundary, so it is validated the way merge_report_data validates
+    its payload: a malformed part is skipped and the rest is kept, because an exception here would
+    escape the controller's pytest_testnodedown hook and lose the aggregation for the whole run.
 
     Args:
         collector: The controller's suggestion collector.
         data: One worker's payload, as produced by serialize_suggestion_data.
 
     """
-    observations = cast('dict[str, list[dict[str, str]]]', data.get('observations') or {})
-    for nodeid, obs in observations.items():
-        for o in obs:
-            collector.record_observation(nodeid, ResourceType(o['resource_type']), o['details'])
-
-    execution_times = cast('dict[str, float]', data.get('execution_times') or {})
-    for nodeid, duration in execution_times.items():
-        collector.record_execution_time(nodeid, duration)
+    if not isinstance(data, dict):
+        return
+    _merge_observations(collector, data.get('observations'))
+    _merge_execution_times(collector, data.get('execution_times'))
